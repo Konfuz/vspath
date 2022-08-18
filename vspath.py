@@ -7,6 +7,8 @@ import re
 import logging
 import pickle
 import math
+from importers import get_importer
+
 logging.basicConfig(level=logging.ERROR)
 
 
@@ -81,48 +83,13 @@ class PathSolver():
             logging.debug(f"We got {len(routes)} to check")
         return best_route
 
-def import_translocators(filename):
-    """Import new Translocators and save them."""
-    translocators = {}
-    with open(filename, newline='') as dbfile:
-        reader = csv.DictReader(dbfile, dialect='excel-tab')
-        for row in reader:
-            if row['\ufeffName'] == 'Translocator':
-
-                org = re.split('X|, Y|, Z', row['Location'])
-                org = (int(org[1]), int(org[3]))
-                if not row['Destination'] or row['Destination'] == '---':
-                    logging.info(
-                        f"TL at {org} " +
-                        f"Missing Destination. {row['Description']}")
-                    continue
-                dst = re.split('X|, Y|, Z', row['Destination'])
-                dst = (int(dst[1]), int(dst[3]))
-                translocators[org] = dst
-    return translocators
-
-def import_landmarks(filename):
-    """Import new Locations and save them."""
-    landmarks = {}
-    with open(filename, newline='') as dbfile:
-        reader = csv.DictReader(dbfile, dialect='excel-tab')
-        for row in reader:
-            if row['\ufeffName'] == 'Sign':
-                try:
-                    landmark = re.split('<AM:\w+>', row['Description'])[1][1:]
-                except IndexError:
-                    logging.warning(f"Malformed <AM:XXX>: {row['Description']}")
-                    continue
-                dst = re.split('X|, Y|, Z', row['Location'])
-                dst = (int(dst[1]), int(dst[3]))
-                landmarks[landmark] = dst
-    return landmarks
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('-d', '--dbfile',
-                        help='csv with translocator locations or landmarks')
+    parser.add_argument('-i', '--import',
+                        metavar='dbfile',
+                        dest='dbfile',
+                        help='file to import')
 
     parser.add_argument('origin',
                         help='origin coordinate x,y or landmark',
@@ -158,16 +125,14 @@ if __name__ == "__main__":
 
     # import new data
     if args.dbfile:
-        new_translocators = import_translocators(args.dbfile)
-        for key in new_translocators:
-            translocators[key] = new_translocators[key]
+        importer = get_importer(args.dbfile, translocators, landmarks)
+        importer.do_import()
         with open('translocators.db', 'w+b') as db:
-            pickle.dump(translocators, db)
-        new_landmarks = import_landmarks(args.dbfile)
-        for key in new_landmarks:
-            landmarks[key] = new_landmarks[key]
+            pickle.dump(importer.translocators, db)
         with open('landmarks.db', 'w+b') as db:
-            pickle.dump(landmarks, db)
+            pickle.dump(importer.landmarks, db)
+        with open('traders.db', 'w+b') as db:
+            pickle.dump(importer.traders, db)
 
     if args.listlandmarks:
         for landmark in sorted(landmarks):

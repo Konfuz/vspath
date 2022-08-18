@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """vspath find shortest route between two points."""
 import argparse
-import csv
 import sys
 import re
 import logging

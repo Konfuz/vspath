@@ -9,14 +9,16 @@ import math
 from importers import get_importer
 
 logging.basicConfig(level=logging.DEBUG)
+MAX_DIST = 4000  # Maximum allowed distance of the next TL in a chain
 
 
 class Route():
 
-    def __init__(self, dist, current, route=[]):
+    def __init__(self, dist, fdist, current, route=[]):
         self.dist = dist
         self.current = current
         self.route = route
+        self.fdist = fdist
 
 
 class PathSolver():
@@ -66,34 +68,39 @@ class PathSolver():
         print(f"Move {int(dist)}m to your destination {next_wp}.")
         print(f"The route is {(total_dist / 1000):.2f}km long and uses {hops} hops.")
 
+
+
+
     def generate_route(self, org, dst):
         """Return shortes route from a point to the other."""
         to_beat = math.dist(org, dst)
         best_route = [org, dst]
-        routes = []
 
-        for tl in self.tls:
-            dist = math.dist(org, tl)
+        def investigate_route(route, dst):
+            """Return shortest route to dst."""
+            nonlocal to_beat, best_route
+            if route.dist > to_beat:
+                return
+            dist = math.dist(route.current, dst) + route.dist
             if dist < to_beat:
-                routes.append(Route(dist, tl, [org]))
-        while routes:
-            surviving_routes = []
+                to_beat = dist
+                best_route = route.route + [dst]
+                logging.debug(f"best distance {to_beat}")
+            routes = []
+            for tl in self.tls:
+                if tl == route.current:
+                    continue
+                dist = math.dist(route.current, tl) + route.dist
+                if dist > to_beat or dist > MAX_DIST:
+                    continue
+                current = self.tls[tl]
+                fdist = dist + math.dist(current, dst)
+                routes.append(Route(dist, fdist, current, route.route + [tl]))
+            routes = sorted(routes, key=lambda route: route.fdist)
+            #logging.debug(f"{len(routes)} routes to check")
             for route in routes:
-                dist = math.dist(route.current, dst) + route.dist
-                # Check if this path is the new best
-                if dist < to_beat:
-                    to_beat = dist
-                    logging.info(f"new best is {to_beat}")
-                    best_route = route.route + [dst]
-                # Expand pathfinding
-                for tl in self.tls:
-                    if tl == route.current:
-                        break
-                    dist = math.dist(route.current, tl) + route.dist
-                    if dist < to_beat:
-                        surviving_routes.append(Route(dist, self.tls[tl], route.route + [tl]))
-            routes = surviving_routes
-            logging.debug(f"We got {len(routes)} to check")
+                investigate_route(route, dst)
+        investigate_route(Route(0, to_beat, org, [org]), dst)
         return best_route
 
 

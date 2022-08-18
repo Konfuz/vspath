@@ -20,12 +20,29 @@ class Route():
 
 
 class PathSolver():
+    tls = {}  # dict of Translocators {from: to}
+    landmarks = {}
+    traders = {}
 
-    def __init__(self, translocators=None):
-        self.tls = translocators
+    def __init__(self):
+        try:
+            with open('translocators.db', 'r+b') as db:
+                self.tls = pickle.load(db)
+        except FileNotFoundError:
+            logging.info('No existing translocator-db found. Ignoring.')
+        try:
+            with open('landmarks.db', 'r+b') as db:
+                self.landmarks = pickle.load(db)
+        except FileNotFoundError:
+            logging.info('No existing landmark-db found. Ignoring.')
+            try:
+                with open('traders.db', 'r+b') as db:
+                    self.traders = pickle.load(db)
+            except FileNotFoundError:
+                logging.info('No existing trader-db found. Ignoring.')
 
     def describe_route(self, route):
-        #route = reversed(route)
+        """Generate written description of a path."""
         hops = 0
         total_dist = 0
         old_wp = route.pop(0)
@@ -49,11 +66,8 @@ class PathSolver():
         print(f"Move {int(dist)}m to your destination {next_wp}.")
         print(f"The route is {(total_dist / 1000):.2f}km long and uses {hops} hops.")
 
-
-
-
     def generate_route(self, org, dst):
-        """Generate routing instruction from a point to the other."""
+        """Return shortes route from a point to the other."""
         to_beat = math.dist(org, dst)
         best_route = [org, dst]
         routes = []
@@ -109,22 +123,14 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    translocators = {}
-    try:
-        with open('translocators.db', 'r+b') as db:
-            translocators = pickle.load(db)
-    except FileNotFoundError:
-        logging.debug('No existing translocator-db found. Ignoring.')
-    landmarks = {}
-    try:
-        with open('landmarks.db', 'r+b') as db:
-            landmarks = pickle.load(db)
-    except FileNotFoundError:
-        logging.debug('No existing landmark-db found. Ignoring.')
+    solver = PathSolver()
 
     # import new data
     if args.dbfile:
-        importer = get_importer(args.dbfile, translocators, landmarks)
+        translocators = solver.tls
+        landmarks = solver.landmarks
+        traders = solver.traders
+        importer = get_importer(args.dbfile, translocators, landmarks, traders)
         importer.do_import()
         with open('translocators.db', 'w+b') as db:
             pickle.dump(importer.translocators, db)
@@ -146,7 +152,7 @@ if __name__ == "__main__":
         except ValueError:
             logging.debug("coordinate could not be parsed as x,y")
         try:
-            return landmarks[coord_str]
+            return solver.landmarks[coord_str]
         except KeyError:
             logging.error(f"Unknown coordinate: {coord_str}")
         return None
@@ -158,7 +164,6 @@ if __name__ == "__main__":
     if args.goal:
         goal = parse_coord(args.goal)
     if origin and goal:
-        solver = PathSolver(translocators)
         route = solver.generate_route(origin, goal)
         solver.describe_route(route)
     sys.exit()

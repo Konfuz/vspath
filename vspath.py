@@ -8,7 +8,7 @@ import pickle
 import math
 from importers import get_importer
 
-logging.basicConfig(level=logging.ERROR)
+logging.basicConfig(level=logging.DEBUG)
 
 
 class Route():

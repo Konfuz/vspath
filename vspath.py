@@ -6,42 +6,18 @@ import re
 import logging
 import pickle
 import math
+import time
 from importers import get_importer
+from datastructures import Translocator, Route
 
 logging.basicConfig(level=logging.DEBUG)
-MAX_DIST = 4000  # Maximum allowed distance of the next TL in a chain
-
-
-class Route():
-
-    def __init__(self, dist, fdist, current, route=[]):
-        self.dist = dist
-        self.current = current
-        self.route = route
-        self.fdist = fdist
-
+MAX_DIST = 8000  # Maximum allowed distance of the next TL in a chain
+MAX_TIME = 600  # Maximum time allowed to find a route in seconds
+tls = set()
+landmarks = {}
+traders = {}
 
 class PathSolver():
-    tls = {}  # dict of Translocators {from: to}
-    landmarks = {}
-    traders = {}
-
-    def __init__(self):
-        try:
-            with open('translocators.db', 'r+b') as db:
-                self.tls = pickle.load(db)
-        except FileNotFoundError:
-            logging.info('No existing translocator-db found. Ignoring.')
-        try:
-            with open('landmarks.db', 'r+b') as db:
-                self.landmarks = pickle.load(db)
-        except FileNotFoundError:
-            logging.info('No existing landmark-db found. Ignoring.')
-            try:
-                with open('traders.db', 'r+b') as db:
-                    self.traders = pickle.load(db)
-            except FileNotFoundError:
-                logging.info('No existing trader-db found. Ignoring.')
 
     def describe_route(self, route):
         """Generate written description of a path."""
@@ -50,59 +26,94 @@ class PathSolver():
         old_wp = route.pop(0)
         print(f"You are starting at {old_wp}")
         next_wp = route.pop(0)
+
+        def tdist(a, b):
+            origin = a
+            if type(a) == Translocator:
+                origin = a.destination
+            destination = b
+            if type(b) == Translocator:
+                destination = b.origin
+            return math.dist(origin, destination)
         while route:
-            try:
-                dist = math.dist(self.tls[old_wp], next_wp)
-            except KeyError:
-                dist = math.dist(old_wp, next_wp)
+            dist = tdist(old_wp, next_wp)
             total_dist += dist
             hops += 1
-            print(f"Move {int(dist)}m to {next_wp} and Teleport")
+            print(f"Move {int(dist)}m to {next_wp.origin} and Teleport")
             old_wp = next_wp
             next_wp = route.pop(0)
-        try:
-            dist = math.dist(self.tls[old_wp], next_wp)
-        except KeyError:
-            dist = math.dist(old_wp, next_wp)
+
+        dist = tdist(old_wp, next_wp)
         total_dist += dist
         print(f"Move {int(dist)}m to your destination {next_wp}.")
         print(f"The route is {(total_dist / 1000):.2f}km long and uses {hops} hops.")
 
-
-
-
-    def generate_route(self, org, dst):
-        """Return shortes route from a point to the other."""
+    def generate_route(self, org, dst, max_time):
+        """Return shortest route from a point to the other."""
         to_beat = math.dist(org, dst)
         best_route = [org, dst]
 
         def investigate_route(route, dst):
             """Return shortest route to dst."""
             nonlocal to_beat, best_route
+            # Discard early if a better route has been found while waiting for this to recurse
             if route.dist > to_beat:
                 return
-            dist = math.dist(route.current, dst) + route.dist
-            if dist < to_beat:
-                to_beat = dist
-                best_route = route.route + [dst]
-                logging.debug(f"best distance {to_beat}")
+            runtime = time.thread_time()
+            if runtime > max_time:
+                return
             routes = []
-            for tl in self.tls:
-                if tl == route.current:
+            tl = route.current
+
+            #logging.debug(f"checking {len(tl.neighbors)} neighbors")
+            for dist, neighbor in tl.neighbors:
+                dist += route.dist
+                if dist >= to_beat:
                     continue
-                dist = math.dist(route.current, tl) + route.dist
-                if dist > to_beat or dist > MAX_DIST:
-                    continue
-                current = self.tls[tl]
-                fdist = dist + math.dist(current, dst)
-                routes.append(Route(dist, fdist, current, route.route + [tl]))
+                fdist = dist + math.dist(neighbor.destination, dst)
+
+                if fdist < to_beat:
+                    to_beat = fdist
+                    best_route = route.route + [neighbor, dst]
+                    logging.debug(f"best distance {to_beat} with {len(best_route)} waypoints. Took {runtime:.2f}s")
+                routes.append(Route(dist, fdist, neighbor, route.route + [neighbor]))
+            # sort to check most promising routes first
             routes = sorted(routes, key=lambda route: route.fdist)
-            #logging.debug(f"{len(routes)} routes to check")
             for route in routes:
                 investigate_route(route, dst)
-        investigate_route(Route(0, to_beat, org, [org]), dst)
+
+        routes = []
+        for tl in tls:
+            dist = math.dist(org, tl.origin)
+            if dist < MAX_DIST:
+                fdist = math.dist(tl.destination, dst)
+                routes.append(Route(dist, fdist, tl, [org, tl]))
+        # sort to check most promising routes first
+        routes = sorted(routes, key=lambda route: route.fdist)
+        progress = 100 / len(routes)
+        i = 0
+        for route in routes:
+            logging.info(f"{progress * i}% Progress")
+            investigate_route(route, dst)
+            i += 1
+
+        if time.thread_time() > max_time:
+            print("Timelimit exceeded, Route may not be optimal!")
+        else:
+            print("Route is optimal!")
         return best_route
 
+def _populate_neighbors():
+    """Attach a list of neighbors to each TL."""
+    for tl in tls:
+        tl.neighbors = []
+        for other_tl in tls:
+            dist = math.dist(tl.destination, other_tl.origin)
+            if dist <= 0:
+                logging.debug(f"{tl.destination} to {other_tl.origin} is {dist}")
+                continue
+            if dist < MAX_DIST:
+                tl.neighbors.append((dist, other_tl))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
@@ -110,7 +121,11 @@ if __name__ == "__main__":
                         metavar='dbfile',
                         dest='dbfile',
                         help='file to import')
-
+    parser.add_argument('-t', '--timelimit',
+                        metavar='seconds',
+                        type=int,
+                        default=1,
+                        help='seconds after which the search gets aborted with an approximate-result')
     parser.add_argument('origin',
                         help='origin coordinate x,y or landmark',
                         nargs='?')
@@ -130,14 +145,28 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # Populate Data
+    try:
+        with open('translocators.db', 'r+b') as db:
+            tls = pickle.load(db)
+    except FileNotFoundError:
+        logging.info('No existing translocator-db found. Ignoring.')
+    try:
+        with open('landmarks.db', 'r+b') as db:
+            landmarks = pickle.load(db)
+    except FileNotFoundError:
+        logging.info('No existing landmark-db found. Ignoring.')
+        try:
+            with open('traders.db', 'r+b') as db:
+                traders = pickle.load(db)
+        except FileNotFoundError:
+            logging.info('No existing trader-db found. Ignoring.')
+
     solver = PathSolver()
 
     # import new data
     if args.dbfile:
-        translocators = solver.tls
-        landmarks = solver.landmarks
-        traders = solver.traders
-        importer = get_importer(args.dbfile, translocators, landmarks, traders)
+        importer = get_importer(args.dbfile, tls, landmarks, traders)
         importer.do_import()
         with open('translocators.db', 'w+b') as db:
             pickle.dump(importer.translocators, db)
@@ -150,6 +179,7 @@ if __name__ == "__main__":
         for landmark in sorted(landmarks):
             print(landmark)
 
+
     def parse_coord(coord_str):
         try:
             x, y = re.split(',', coord_str)
@@ -159,10 +189,11 @@ if __name__ == "__main__":
         except ValueError:
             logging.debug("coordinate could not be parsed as x,y")
         try:
-            return solver.landmarks[coord_str]
+            return landmarks[coord_str]
         except KeyError:
             logging.error(f"Unknown coordinate: {coord_str}")
         return None
+
 
     origin = goal = None
 
@@ -171,6 +202,7 @@ if __name__ == "__main__":
     if args.goal:
         goal = parse_coord(args.goal)
     if origin and goal:
-        route = solver.generate_route(origin, goal)
+        _populate_neighbors()
+        route = solver.generate_route(origin, goal, args.timelimit)
         solver.describe_route(route)
     sys.exit()

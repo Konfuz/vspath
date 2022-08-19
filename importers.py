@@ -1,14 +1,15 @@
 
 import logging
 import re
+from datastructures import Translocator
 
 class AbstractImporter():
-    translocators = {}
+    translocators = set()
     landmarks = {}
     traders = {}
     filepath = ''
 
-    def __init__(self, filepath, translocators={}, landmarks={}, traders={}):
+    def __init__(self, filepath, translocators=set(), landmarks={}, traders={}):
         self.translocators = translocators
         self.landmarks = landmarks
         self.traders = traders
@@ -31,7 +32,7 @@ class GeojsonImporter(AbstractImporter):
                     continue
                 origin = (int(origin[0]), int(origin[1]))
                 goal = (int(goal[0]), int(goal[1]))
-                self.translocators[origin] = goal
+                self.translocators.add(Translocator(origin, goal))
 
 
 class TSVImporter(AbstractImporter):
@@ -57,7 +58,7 @@ class TSVImporter(AbstractImporter):
                             f"TL at {org} " +
                             f"Missing Destination. {row['Description']}")
                         continue
-                    self.translocators[org] = to_2d_coord(row['Destination'])
+                    self.translocators.add(Translocator(org, to_2d_coord(row['Destination'])))
                 elif row['\ufeffName'] == 'Sign':
                     try:
                         landmark = re.split('<AM:\w+>', row['Description'])[1][1:]

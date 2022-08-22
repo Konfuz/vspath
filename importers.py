@@ -30,8 +30,8 @@ class GeojsonImporter(AbstractImporter):
                 except KeyError:
                     logging.warning(f"missing coordinate in {geometry}")
                     continue
-                origin = (int(origin[0]), int(origin[1]))
-                goal = (int(goal[0]), int(goal[1]))
+                origin = (int(origin[0]), -int(origin[1]))
+                goal = (int(goal[0]), -int(goal[1]))
                 self.translocators.add(Translocator(origin, goal))
 
 

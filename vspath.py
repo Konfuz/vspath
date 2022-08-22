@@ -10,7 +10,7 @@ import time
 from importers import get_importer
 from datastructures import Translocator, Route
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.WARNING)
 MAX_DIST = 8000  # Maximum allowed distance of the next TL in a chain
 MAX_TIME = 600  # Maximum time allowed to find a route in seconds
 tls = set()
@@ -27,25 +27,38 @@ class PathSolver():
         print(f"You are starting at {old_wp}")
         next_wp = route.pop(0)
 
-        def tdist(a, b):
-            origin = a
+        def as_origin(a):
             if type(a) == Translocator:
-                origin = a.destination
-            destination = b
-            if type(b) == Translocator:
-                destination = b.origin
-            return math.dist(origin, destination)
+                return a.destination
+            return a
+
+        def as_destination(a):
+            if type(a) == Translocator:
+                return a.origin
+            return a
+
+        def cardinal_dir(a, b):
+            origin = as_origin(a)
+            destination = as_destination(b)
+            dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']
+            dt_x = destination[0] - origin[0]
+            dt_y = destination[1] - origin[1]
+            ix = round(math.atan2(dt_x, -dt_y) / (2 * math.pi) * len(dirs))
+            return dirs[ix]
+
         while route:
-            dist = tdist(old_wp, next_wp)
+            dist = math.dist(as_origin(old_wp), as_destination(next_wp))
+            direction = cardinal_dir(old_wp, next_wp)
+
             total_dist += dist
             hops += 1
-            print(f"Move {int(dist)}m to {next_wp.origin} and Teleport")
+            print(f"Move {int(dist)}m {direction} to {next_wp.origin} and Teleport to {next_wp.destination}")
             old_wp = next_wp
             next_wp = route.pop(0)
 
-        dist = tdist(old_wp, next_wp)
+        dist = math.dist(as_origin(old_wp), as_destination(next_wp))
         total_dist += dist
-        print(f"Move {int(dist)}m to your destination {next_wp}.")
+        print(f"Move {int(dist)}m {cardinal_dir(old_wp, next_wp)} to your destination {next_wp}.")
         print(f"The route is {(total_dist / 1000):.2f}km long and uses {hops} hops.")
 
     def generate_route(self, org, dst, max_time):
@@ -116,7 +129,9 @@ def _populate_neighbors():
                 tl.neighbors.append((dist, other_tl))
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
+    epilog = """Imports points_of_interest.tsv from the Map folder and translocators_lines.geojson from the webmap"""
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     epilog=epilog)
     parser.add_argument('-i', '--import',
                         metavar='dbfile',
                         dest='dbfile',

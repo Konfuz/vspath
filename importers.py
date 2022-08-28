@@ -18,6 +18,21 @@ class AbstractImporter():
     def do_import(self, filepath):
         raise NotImplementedError
 
+class CampaignCartographerImporter(AbstractImporter):
+    def do_import(self):
+        import json
+        with open(self.filepath) as dbfile:
+            db = json.load(dbfile)
+            for item in db['Waypoints']:
+                try:
+                    goal = re.match('Translocator to \((-*\d+), -*\d+, (-*\d+)\)', item["Title"]).group(1,2)
+                except AttributeError:
+                    continue
+                position = item["Position"]
+                origin = (int(position["X"]) - 500000, int(position["Z"] - 500000))
+                goal = (int(goal[0]), int(goal[1]))
+                self.translocators.add(Translocator(origin, goal))
+                print(f"adding {origin}, {goal}")
 
 class GeojsonImporter(AbstractImporter):
     def do_import(self):
@@ -86,4 +101,6 @@ def get_importer(filepath, translocators={}, landmarks={}, traders={}):
         return TSVImporter(filepath, translocators, landmarks, traders)
     elif filepath.endswith('.geojson'):
         return GeojsonImporter(filepath, translocators, landmarks, traders)
+    elif filepath.endswith('.json'):
+        return CampaignCartographerImporter(filepath, translocators, landmarks, traders)
     logging.error(f'Could not find a valid importer for {filepath}')

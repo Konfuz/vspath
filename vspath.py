@@ -8,7 +8,7 @@ import pickle
 import math
 import time
 from lib.pathfinder.importers import get_importer
-from lib.pathfinder.datastructures import Translocator, Route
+from lib.pathfinder.datastructures import Node, Route
 from lib.pathfinder.util import cardinal_dir
 
 logging.basicConfig(level=logging.WARNING)
@@ -29,18 +29,20 @@ class PathSolver():
         next_wp = route.pop(0)
 
         def as_origin(a):
-            if type(a) == Translocator:
+            if type(a) == Node:
                 return a.destination
             return a
 
         def as_destination(a):
-            if type(a) == Translocator:
+            if type(a) == Node:
                 return a.origin
             return a
 
         while route:
             dist = math.dist(as_origin(old_wp), as_destination(next_wp))
-            direction = cardinal_dir(as_origin, as_destination, old_wp, next_wp)
+            origin = as_origin(old_wp)
+            destination = as_destination(next_wp)
+            direction = cardinal_dir(origin, destination)
 
             total_dist += dist
             hops += 1

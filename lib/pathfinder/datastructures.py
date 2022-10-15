@@ -8,10 +8,11 @@ class Route():
         self.fdist = fdist
 
 
-class Translocator():
+class Node():
     neighbors = []  # List of (distance_to, neighbor)
     origin = ()
     destination = ()
+    nodetype = "None"
 
     def __init__(self, origin, destination):
         self.origin = origin

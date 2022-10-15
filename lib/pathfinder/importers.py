@@ -1,7 +1,7 @@
 
 import logging
 import re
-from lib.pathfinder.datastructures import Translocator
+from lib.pathfinder.datastructures import Node
 
 class AbstractImporter():
     translocators = set()
@@ -31,7 +31,7 @@ class CampaignCartographerImporter(AbstractImporter):
                 position = item["Position"]
                 origin = (int(position["X"]) - 500000, int(position["Z"] - 500000))
                 goal = (int(goal[0]), int(goal[1]))
-                self.translocators.add(Translocator(origin, goal))
+                self.translocators.add(Node(origin, goal))
                 print(f"adding {origin}, {goal}")
 
 class GeojsonImporter(AbstractImporter):
@@ -47,7 +47,7 @@ class GeojsonImporter(AbstractImporter):
                     continue
                 origin = (int(origin[0]), -int(origin[1]))
                 goal = (int(goal[0]), -int(goal[1]))
-                self.translocators.add(Translocator(origin, goal))
+                self.translocators.add(Node(origin, goal))
 
 
 class TSVImporter(AbstractImporter):
@@ -73,7 +73,7 @@ class TSVImporter(AbstractImporter):
                             f"TL at {org} " +
                             f"Missing Destination. {row['Description']}")
                         continue
-                    self.translocators.add(Translocator(org, to_2d_coord(row['Destination'])))
+                    self.translocators.add(Node(org, to_2d_coord(row['Destination'])))
                 elif row['\ufeffName'] == 'Sign':
                     try:
                         landmark = re.split('<AM:\w+>', row['Description'])[1][1:]

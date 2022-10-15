@@ -1,7 +1,7 @@
 import math
 
 
-def cardinal_dir(a, b):
+def cardinal_dir(origin, destination):
     """Return Cardinal Direction String from coordinate origin to destination"""
 
     dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']

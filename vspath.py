@@ -9,11 +9,11 @@ import math
 import time
 from lib.pathfinder.importers import get_importer
 from lib.pathfinder.datastructures import Node, Route
-from lib.pathfinder.util import cardinal_dir
+from lib.pathfinder.util import cardinal_dir, manhattan
 
 logging.basicConfig(level=logging.WARNING)
-MAX_DIST = 8000  # Maximum allowed distance of the next TL in a chain
-MAX_TIME = 600  # Maximum time allowed to find a route in seconds
+MAX_DIST = 16000  # Maximum allowed distance of the next TL in a chain
+MAX_TIME = 6  # Maximum time allowed to find a route in seconds
 tls = set()
 landmarks = {}
 traders = {}
@@ -39,7 +39,7 @@ class PathSolver():
             return a
 
         while route:
-            dist = math.dist(as_origin(old_wp), as_destination(next_wp))
+            dist = manhattan(as_origin(old_wp), as_destination(next_wp))
             origin = as_origin(old_wp)
             destination = as_destination(next_wp)
             direction = cardinal_dir(origin, destination)
@@ -50,7 +50,7 @@ class PathSolver():
             old_wp = next_wp
             next_wp = route.pop(0)
 
-        dist = math.dist(as_origin(old_wp), as_destination(next_wp))
+        dist = manhattan(as_origin(old_wp), as_destination(next_wp))
         total_dist += dist
         origin = as_origin(old_wp)
         destination = as_destination(next_wp)
@@ -59,12 +59,13 @@ class PathSolver():
 
     def generate_route(self, org, dst, max_time):
         """Return shortest route from a point to the other."""
-        to_beat = math.dist(org, dst)
+        to_beat = manhattan(org, dst)
         best_route = [org, dst]
+        counter = 0
 
         def investigate_route(route, dst):
             """Return shortest route to dst."""
-            nonlocal to_beat, best_route
+            nonlocal to_beat, best_route, counter
             # Discard early if a better route has been found while waiting for this to recurse
             if route.dist > to_beat:
                 return
@@ -73,16 +74,18 @@ class PathSolver():
                 return
             routes = []
             tl = route.current
+            counter += 1
 
             #logging.debug(f"checking {len(tl.neighbors)} neighbors")
             for dist, neighbor in tl.neighbors:
                 dist += route.dist
-                if dist >= to_beat:
+                if dist >= neighbor.current:
                     continue
-                fdist = dist + math.dist(neighbor.destination, dst)
+                fdist = dist + manhattan(neighbor.destination, dst)
 
                 if fdist < to_beat:
                     to_beat = fdist
+                    neighbor.current = dist
                     best_route = route.route + [neighbor, dst]
                     logging.debug(f"best distance {to_beat} with {len(best_route)} waypoints. Took {runtime:.2f}s")
                 routes.append(Route(dist, fdist, neighbor, route.route + [neighbor]))
@@ -93,9 +96,9 @@ class PathSolver():
 
         routes = []
         for tl in tls:
-            dist = math.dist(org, tl.origin)
-            if dist < MAX_DIST:
-                fdist = math.dist(tl.destination, dst)
+            dist = manhattan(org, tl.origin)
+            if dist < MAX_DIST and dist < manhattan(org, tl.destination):
+                fdist = manhattan(tl.destination, dst)
                 routes.append(Route(dist, fdist, tl, [org, tl]))
         # sort to check most promising routes first
         routes = sorted(routes, key=lambda route: route.fdist)
@@ -110,6 +113,7 @@ class PathSolver():
             print("Timelimit exceeded, Route may not be optimal!")
         else:
             print("Route is optimal!")
+        print(f"Did {counter} Investigations")
         return best_route
 
 def _populate_neighbors():
@@ -117,11 +121,11 @@ def _populate_neighbors():
     for tl in tls:
         tl.neighbors = []
         for other_tl in tls:
-            dist = math.dist(tl.destination, other_tl.origin)
+            dist = manhattan(tl.destination, other_tl.origin)
             if dist <= 0:
                 logging.debug(f"{tl.destination} to {other_tl.origin} is {dist}")
                 continue
-            if dist < MAX_DIST:
+            if dist < manhattan(other_tl.destination, tl.origin):
                 tl.neighbors.append((dist, other_tl))
 
 if __name__ == "__main__":
@@ -137,6 +141,9 @@ if __name__ == "__main__":
                         type=int,
                         default=1,
                         help='seconds after which the search gets aborted with an approximate-result')
+    parser.add_argument('-c', '--clean',
+                        action='store_true',
+                        help='clears the entire database')
     parser.add_argument('origin',
                         help='origin coordinate x,y or landmark',
                         nargs='?')
@@ -175,16 +182,25 @@ if __name__ == "__main__":
 
     solver = PathSolver()
 
-    # import new data
-    if args.dbfile:
-        importer = get_importer(args.dbfile, tls, landmarks, traders)
-        importer.do_import()
+    def dbdump():
         with open('translocators.db', 'w+b') as db:
             pickle.dump(importer.translocators, db)
         with open('landmarks.db', 'w+b') as db:
             pickle.dump(importer.landmarks, db)
         with open('traders.db', 'w+b') as db:
             pickle.dump(importer.traders, db)
+
+    # import new data
+    if args.dbfile:
+        importer = get_importer(args.dbfile, tls, landmarks, traders)
+        importer.do_import()
+        dbdump()
+
+    if args.clean:
+        tls = []
+        landmarks = []
+        traders = []
+        dbdump()
 
     if args.listlandmarks:
         for landmark in sorted(landmarks):

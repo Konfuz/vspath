@@ -9,3 +9,8 @@ def cardinal_dir(origin, destination):
     dt_y = destination[1] - origin[1]
     ix = round(math.atan2(dt_x, -dt_y) / (2 * math.pi) * len(dirs))
     return dirs[ix]
+
+def manhattan(a, b):
+    x = abs(a[0] - b[0])
+    y = abs(a[1] - b[1])
+    return x + y

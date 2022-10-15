@@ -7,8 +7,9 @@ import logging
 import pickle
 import math
 import time
-from importers import get_importer
-from datastructures import Translocator, Route
+from lib.pathfinder.importers import get_importer
+from lib.pathfinder.datastructures import Translocator, Route
+from lib.pathfinder.util import cardinal_dir
 
 logging.basicConfig(level=logging.WARNING)
 MAX_DIST = 8000  # Maximum allowed distance of the next TL in a chain
@@ -37,18 +38,9 @@ class PathSolver():
                 return a.origin
             return a
 
-        def cardinal_dir(a, b):
-            origin = as_origin(a)
-            destination = as_destination(b)
-            dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']
-            dt_x = destination[0] - origin[0]
-            dt_y = destination[1] - origin[1]
-            ix = round(math.atan2(dt_x, -dt_y) / (2 * math.pi) * len(dirs))
-            return dirs[ix]
-
         while route:
             dist = math.dist(as_origin(old_wp), as_destination(next_wp))
-            direction = cardinal_dir(old_wp, next_wp)
+            direction = cardinal_dir(as_origin, as_destination, old_wp, next_wp)
 
             total_dist += dist
             hops += 1
@@ -58,7 +50,9 @@ class PathSolver():
 
         dist = math.dist(as_origin(old_wp), as_destination(next_wp))
         total_dist += dist
-        print(f"Move {int(dist)}m {cardinal_dir(old_wp, next_wp)} to your destination {next_wp}.")
+        origin = as_origin(old_wp)
+        destination = as_destination(next_wp)
+        print(f"Move {int(dist)}m {cardinal_dir(origin, destination)} to your destination {next_wp}.")
         print(f"The route is {(total_dist / 1000):.2f}km long and uses {hops} hops.")
 
     def generate_route(self, org, dst, max_time):

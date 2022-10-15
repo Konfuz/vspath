@@ -1,7 +1,7 @@
 
 import logging
 import re
-from datastructures import Translocator
+from lib.pathfinder.datastructures import Translocator
 
 class AbstractImporter():
     translocators = set()

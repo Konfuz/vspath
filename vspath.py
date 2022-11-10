@@ -11,7 +11,7 @@ from lib.pathfinder.importers import get_importer
 from lib.pathfinder.datastructures import Node, Route
 from lib.pathfinder.util import cardinal_dir, manhattan
 
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.DEBUG)
 MAX_DIST = 16000  # Maximum allowed distance of the next TL in a chain
 MAX_TIME = 6  # Maximum time allowed to find a route in seconds
 tls = set()
@@ -116,7 +116,7 @@ class PathSolver():
         print(f"Did {counter} Investigations")
         return best_route
 
-def _populate_neighbors():
+def _populate_neighbors(dst):
     """Attach a list of neighbors to each TL."""
     for tl in tls:
         tl.neighbors = []
@@ -127,6 +127,7 @@ def _populate_neighbors():
                 continue
             if dist < manhattan(other_tl.destination, tl.origin):
                 tl.neighbors.append((dist, other_tl))
+        tl.neighbors = sorted(tl.neighbors, key=lambda neighbor: manhattan(neighbor[1].destination, dst))
 
 if __name__ == "__main__":
     epilog = """Imports points_of_interest.tsv from the Map folder and translocators_lines.geojson from the webmap"""
@@ -229,7 +230,7 @@ if __name__ == "__main__":
     if args.goal:
         goal = parse_coord(args.goal)
     if origin and goal:
-        _populate_neighbors()
+        _populate_neighbors(goal)
         route = solver.generate_route(origin, goal, args.timelimit)
         solver.describe_route(route)
     sys.exit()

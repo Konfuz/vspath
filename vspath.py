@@ -5,8 +5,13 @@ import sys
 import re
 import logging
 import pickle
-import math
 import time
+import gc
+
+import graph_tool as gt
+import graph_tool.util.libgraph_tool_util
+from graph_tool.draw import graph_draw
+from graph_tool.search import AStarVisitor, astar_search, dijkstra_search, DijkstraVisitor
 from lib.pathfinder.importers import get_importer
 from lib.pathfinder.datastructures import Node, Route
 from lib.pathfinder.util import cardinal_dir, manhattan
@@ -57,77 +62,44 @@ class PathSolver():
         print(f"Move {int(dist)}m {cardinal_dir(origin, destination)} to your destination {next_wp}.")
         print(f"The route is {(total_dist / 1000):.2f}km long and uses {hops} hops.")
 
-    def generate_route(self, org, dst, max_time):
-        """Return shortest route from a point to the other."""
-        to_beat = manhattan(org, dst)
-        best_route = [org, dst]
-        counter = 0
+class Visitor(AStarVisitor):
+    """Perform actions during A* Algorithm"""
+    def __init__(self, g, target, dist, vfilt=None):
+        self.graph = gt.GraphView(g, vfilt=vfilt)
+        self.target = target
+        self.target_coord = self.graph.vp.coord[self.target]
+        self.starttime = time.time()
+        self.dist = dist
+        vertices = self.graph.num_vertices()
+        edges = self.graph.num_edges()
+        self.touched = 0
+        self.added = 0
+        self.expanded = {}
+        logging.info(f"Searching path through {vertices} vertices with {edges} edges")
 
-        def investigate_route(route, dst):
-            """Return shortest route to dst."""
-            nonlocal to_beat, best_route, counter
-            # Discard early if a better route has been found while waiting for this to recurse
-            if route.dist > to_beat:
-                return
-            runtime = time.thread_time()
-            if runtime > max_time:
-                return
-            routes = []
-            tl = route.current
-            counter += 1
+    def edge_relaxed(self, e):
+        logging.debug(f"Current dist: {self.dist[e.target()]}")
+        if e.target() == self.target:
+            dur = time.time() - self.starttime
+            logging.info(f"Finished search in {dur} seconds")
+            #raise gt.search.StopSearch()
 
-            #logging.debug(f"checking {len(tl.neighbors)} neighbors")
-            for dist, neighbor in tl.neighbors:
-                dist += route.dist
-                if dist >= neighbor.current:
-                    continue
-                fdist = dist + manhattan(neighbor.destination, dst)
+    def manhattan_heuristic(v, target):
+        dist = manhattan(self.graph.vp.coord[v], self.graph.vp.coord[target])
+        logging.debug(f"dist of {v} est: {dist}")
+        return dist
 
-                if fdist < to_beat:
-                    to_beat = fdist
-                    neighbor.current = dist
-                    best_route = route.route + [neighbor, dst]
-                    logging.debug(f"best distance {to_beat} with {len(best_route)} waypoints. Took {runtime:.2f}s")
-                routes.append(Route(dist, fdist, neighbor, route.route + [neighbor]))
-            # sort to check most promising routes first
-            routes = sorted(routes, key=lambda route: route.fdist)
-            for route in routes:
-                investigate_route(route, dst)
 
-        routes = []
-        for tl in tls:
-            dist = manhattan(org, tl.origin)
-            if dist < MAX_DIST and dist < manhattan(org, tl.destination):
-                fdist = manhattan(tl.destination, dst)
-                routes.append(Route(dist, fdist, tl, [org, tl]))
-        # sort to check most promising routes first
-        routes = sorted(routes, key=lambda route: route.fdist)
-        progress = 100 / len(routes)
-        i = 0
-        for route in routes:
-            logging.info(f"{progress * i}% Progress")
-            investigate_route(route, dst)
-            i += 1
+def link_vertex(g, u, maxdist=MAX_DIST):
+    for v in g.iter_vertices():
+        dist = manhattan(g.vp.coord[u], g.vp.coord[v])
 
-        if time.thread_time() > max_time:
-            print("Timelimit exceeded, Route may not be optimal!")
-        else:
-            print("Route is optimal!")
-        print(f"Did {counter} Investigations")
-        return best_route
+        if dist < maxdist and v != u:
+            #logging.debug(f"{u}->{v} {dist}")
+            edg = g.add_edge(u, v)
+            g.ep.weight[edg] = dist
+    return
 
-def _populate_neighbors(dst):
-    """Attach a list of neighbors to each TL."""
-    for tl in tls:
-        tl.neighbors = []
-        for other_tl in tls:
-            dist = manhattan(tl.destination, other_tl.origin)
-            if dist <= 0:
-                logging.debug(f"{tl.destination} to {other_tl.origin} is {dist}")
-                continue
-            if dist < manhattan(other_tl.destination, tl.origin):
-                tl.neighbors.append((dist, other_tl))
-        tl.neighbors = sorted(tl.neighbors, key=lambda neighbor: manhattan(neighbor[1].destination, dst))
 
 if __name__ == "__main__":
     epilog = """Imports points_of_interest.tsv from the Map folder and translocators_lines.geojson from the webmap"""
@@ -152,6 +124,11 @@ if __name__ == "__main__":
                         help='target coordinate x,y or landmark',
                         nargs='?')
     parser.add_argument('--listlandmarks', action='store_true', help='output known landmarks')
+    parser.add_argument('-d', '--data',
+                        metavar='graphfile',
+                        dest='graphfile',
+                        default='navgraph.gt',
+                        help='database file in graphtool format *.gt')
 
     # Hack to prevent negative coordinates to be parsed as options by argparse
     args = sys.argv
@@ -165,48 +142,30 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Populate Data
-    try:
-        with open('translocators.db', 'r+b') as db:
-            tls = pickle.load(db)
-    except FileNotFoundError:
-        logging.info('No existing translocator-db found. Ignoring.')
-    try:
-        with open('landmarks.db', 'r+b') as db:
-            landmarks = pickle.load(db)
-    except FileNotFoundError:
-        logging.info('No existing landmark-db found. Ignoring.')
-        try:
-            with open('traders.db', 'r+b') as db:
-                traders = pickle.load(db)
-        except FileNotFoundError:
-            logging.info('No existing trader-db found. Ignoring.')
-
-    solver = PathSolver()
-
-    def dbdump():
-        with open('translocators.db', 'w+b') as db:
-            pickle.dump(importer.translocators, db)
-        with open('landmarks.db', 'w+b') as db:
-            pickle.dump(importer.landmarks, db)
-        with open('traders.db', 'w+b') as db:
-            pickle.dump(importer.traders, db)
+    try :
+        print(args.graphfile)
+        graph = gt.load_graph(args.graphfile)
+    except IOError:
+        graph = None
 
     # import new data
     if args.dbfile:
-        importer = get_importer(args.dbfile, tls, landmarks, traders)
+        importer = get_importer(args.dbfile, graph)
+        existing = importer.graph.num_vertices()
         importer.do_import()
-        dbdump()
+        importer.make_connections()
+        new = importer.graph.num_vertices()
+        logging.info(f"Added {new - existing} Nodes for a total of {new}.")
+        importer.graph.save(args.graphfile)
+        graph = importer.graph
 
     if args.clean:
-        tls = []
-        landmarks = []
-        traders = []
-        dbdump()
+        # override Graph file with empty Graph
+        # TODO: Need to add all property maps, generator for new Graph required for importer and this
+        gt.Graph.save(args.graphfile, Graph(directed=True))
 
     if args.listlandmarks:
-        for landmark in sorted(landmarks):
-            print(landmark)
-
+        pass  #TODO: Landmarks currently no thing
 
     def parse_coord(coord_str):
         try:
@@ -223,14 +182,56 @@ if __name__ == "__main__":
         return None
 
 
-    origin = goal = None
-
+    # Check for an actual pathfinding task and conduct it
+    origin = destination = None
     if args.origin:
         origin = parse_coord(args.origin)
     if args.goal:
-        goal = parse_coord(args.goal)
-    if origin and goal:
-        _populate_neighbors(goal)
-        route = solver.generate_route(origin, goal, args.timelimit)
-        solver.describe_route(route)
+        destination = parse_coord(args.goal)
+    if origin and destination:
+        if not graph:
+            logging.error("No Graph-Data available. Try importing some data first before searching in it")
+        # obtain origin vertex
+        ovt = graph_tool.util.find_vertex(graph, graph.vp.coord, origin)
+        if ovt:
+            assert(len(ovt)==1)
+            ovt = ovt[0]
+            logging.debug(f"found origin to be preexisting as vertex {ovt}")
+        else:
+            ovt = graph.add_vertex()
+            graph.vp.coord[ovt] = origin
+        # obtain destination vertex
+        dvt = graph_tool.util.find_vertex(graph, graph.vp.coord, destination)
+        if dvt:
+            assert (len(dvt) == 1)
+            dvt = dvt[0]
+            logging.debug(f"found destination to be preexisting as vertex {dvt}")
+        else:
+            dvt = graph.add_vertex()
+            graph.vp.coord[dvt] = destination
+        edg = graph.add_edge(ovt, dvt)
+        graph.ep.weight[edg] = manhattan(origin, destination)
+        weight = graph.ep.weight
+        dist = graph.new_vertex_property('int', val=999999)
+        maxdist = manhattan(graph.vp.coord[ovt], graph.vp.coord[dvt])
+        logging.info(f"walking from {graph.vp.coord[ovt]} to {graph.vp.coord[dvt]}")
+        logging.info(f"Trivial distance would be {maxdist} to walk")
+        visitor = Visitor(graph, dvt, dist)
+        visitor = DijkstraVisitor()
+        link_vertex(graph, ovt, maxdist)
+        link_vertex(graph, dvt, maxdist)
+        starttime = time.time()
+        dist, pred = dijkstra_search(graph, weight, ovt, visitor, dist_map=dist, infinity=999999)
+        logging.info(f"search took {time.time() - starttime} seconds")
+        logging.debug(f"ovt has degree {ovt.out_degree()}, dvt has degree {dvt.out_degree()}")
+        p = pred[dvt]
+        print(f"Shortest distance: {dist[dvt]}")
+        while not p == ovt:
+            print(p)
+            p = pred[p]
+    logging.debug(f"Edges: {graph.num_edges()}")
+
+    if args.draw_graph:
+        graph_draw(graph, pos=graph.vp.coord.copy('vector<double>'), nodesfirst=False, ink_scale=0.5,
+                       output_size=(2048, 2048), output='graph.png')
     sys.exit()

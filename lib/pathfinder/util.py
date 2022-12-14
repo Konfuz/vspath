@@ -14,3 +14,10 @@ def manhattan(a, b):
     x = abs(a[0] - b[0])
     y = abs(a[1] - b[1])
     return x + y
+
+
+# def manhattan(ox, oz, dx, dz):
+#     x = abs(ox - dx)
+#     y = abs(oz - dz)
+#     return x + y
+

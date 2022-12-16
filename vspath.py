@@ -4,63 +4,52 @@ import argparse
 import sys
 import re
 import logging
-import pickle
 import time
-import gc
+import yaml
 
 import graph_tool as gt
 import graph_tool.util.libgraph_tool_util
 from graph_tool.draw import graph_draw
 from graph_tool.search import AStarVisitor, astar_search, dijkstra_search, DijkstraVisitor
+from graph_tool.topology import shortest_path
 from lib.pathfinder.importers import get_importer
 from lib.pathfinder.datastructures import Node, Route
 from lib.pathfinder.util import cardinal_dir, manhattan
+from lib.pathfinder.config import config
 
 logging.basicConfig(level=logging.DEBUG)
 MAX_DIST = 16000  # Maximum allowed distance of the next TL in a chain
-MAX_TIME = 6  # Maximum time allowed to find a route in seconds
 tls = set()
 landmarks = {}
 traders = {}
 
-class PathSolver():
+def describe_route(vertex_list, edge_list):
+    """Generate written description of a path."""
+    hops = 0
+    total_dist = 0
+    v1 = vertex_list.pop(0)
+    print(f"You are starting at {coord[v1]}")
+    v2 = vertex_list.pop(0)
+    edg = edge_list.pop(0)
 
-    def describe_route(self, route):
-        """Generate written description of a path."""
-        hops = 0
-        total_dist = 0
-        old_wp = route.pop(0)
-        print(f"You are starting at {old_wp}")
-        next_wp = route.pop(0)
+    while route:
+        dist = weight[edg]
+        org = coord[v1]
+        dst = coord[v2]
+        direction = cardinal_dir(org, dst)
 
-        def as_origin(a):
-            if type(a) == Node:
-                return a.destination
-            return a
-
-        def as_destination(a):
-            if type(a) == Node:
-                return a.origin
-            return a
-
-        while route:
-            dist = manhattan(as_origin(old_wp), as_destination(next_wp))
-            origin = as_origin(old_wp)
-            destination = as_destination(next_wp)
-            direction = cardinal_dir(origin, destination)
-
-            total_dist += dist
-            hops += 1
-            print(f"Move {int(dist)}m {direction} to {next_wp.origin} and Teleport to {next_wp.destination}")
-            old_wp = next_wp
-            next_wp = route.pop(0)
-
-        dist = manhattan(as_origin(old_wp), as_destination(next_wp))
         total_dist += dist
-        origin = as_origin(old_wp)
-        destination = as_destination(next_wp)
-        print(f"Move {int(dist)}m {cardinal_dir(origin, destination)} to your destination {next_wp}.")
-        print(f"The route is {(total_dist / 1000):.2f}km long and uses {hops} hops.")
+        hops += 1
+        print(f"Move {int(dist)}m {direction} to {next_wp.origin} and Teleport to {next_wp.destination}")
+        old_wp = next_wp
+        next_wp = vertex_list.pop(0)
+
+    dist = manhattan(as_origin(old_wp), as_destination(next_wp))
+    total_dist += dist
+    origin = as_origin(old_wp)
+    destination = as_destination(next_wp)
+    print(f"Move {int(dist)}m {cardinal_dir(origin, destination)} to your destination {next_wp}.")
+    print(f"The route is {(total_dist / 1000):.2f}km long and uses {hops} hops.")
 
 class Visitor(AStarVisitor):
     """Perform actions during A* Algorithm"""
@@ -102,69 +91,31 @@ def link_vertex(g, u, maxdist=MAX_DIST):
 
 
 if __name__ == "__main__":
-    epilog = """Imports points_of_interest.tsv from the Map folder and translocators_lines.geojson from the webmap"""
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     epilog=epilog)
-    parser.add_argument('-i', '--import',
-                        metavar='dbfile',
-                        dest='dbfile',
-                        help='file to import')
-    parser.add_argument('-t', '--timelimit',
-                        metavar='seconds',
-                        type=int,
-                        default=1,
-                        help='seconds after which the search gets aborted with an approximate-result')
-    parser.add_argument('-c', '--clean',
-                        action='store_true',
-                        help='clears the entire database')
-    parser.add_argument('origin',
-                        help='origin coordinate x,y or landmark',
-                        nargs='?')
-    parser.add_argument('goal',
-                        help='target coordinate x,y or landmark',
-                        nargs='?')
-    parser.add_argument('--listlandmarks', action='store_true', help='output known landmarks')
-    parser.add_argument('-d', '--data',
-                        metavar='graphfile',
-                        dest='graphfile',
-                        default='navgraph.gt',
-                        help='database file in graphtool format *.gt')
-
-    # Hack to prevent negative coordinates to be parsed as options by argparse
-    args = sys.argv
-    pat = '-?[0-9]+,-?[0-9]+'
-    try:
-        if re.match(pat, args[-2]) or re.match(pat, args[-1]):
-            args.insert(-2, '--')
-    except IndexError:
-        pass  # Lack of parameters
-
-    args = parser.parse_args()
-
+    logging.debug(f"Storing Data under {config.data_file}")
     # Populate Data
     try :
-        print(args.graphfile)
-        graph = gt.load_graph(args.graphfile)
+        graph = gt.load_graph(config.data_file)
     except IOError:
         graph = None
+        logging.warning('No existing Navgraph found')
 
     # import new data
-    if args.dbfile:
-        importer = get_importer(args.dbfile, graph)
+    if config.dbfile:
+        importer = get_importer(config.dbfile, graph)
         existing = importer.graph.num_vertices()
         importer.do_import()
         importer.make_connections()
         new = importer.graph.num_vertices()
         logging.info(f"Added {new - existing} Nodes for a total of {new}.")
-        importer.graph.save(args.graphfile)
+        importer.graph.save(config.data_file)
         graph = importer.graph
 
-    if args.clean:
+    if config.clean:
         # override Graph file with empty Graph
         # TODO: Need to add all property maps, generator for new Graph required for importer and this
-        gt.Graph.save(args.graphfile, Graph(directed=True))
+        gt.Graph.save(config.data_file, Graph(directed=True))
 
-    if args.listlandmarks:
+    if config.listlandmarks:
         pass  #TODO: Landmarks currently no thing
 
     def parse_coord(coord_str):
@@ -184,10 +135,10 @@ if __name__ == "__main__":
 
     # Check for an actual pathfinding task and conduct it
     origin = destination = None
-    if args.origin:
-        origin = parse_coord(args.origin)
-    if args.goal:
-        destination = parse_coord(args.goal)
+    if config.origin:
+        origin = parse_coord(config.origin)
+    if config.goal:
+        destination = parse_coord(config.goal)
     if origin and destination:
         if not graph:
             logging.error("No Graph-Data available. Try importing some data first before searching in it")
@@ -211,27 +162,42 @@ if __name__ == "__main__":
             graph.vp.coord[dvt] = destination
         edg = graph.add_edge(ovt, dvt)
         graph.ep.weight[edg] = manhattan(origin, destination)
+        coord = graph.vp.coord
         weight = graph.ep.weight
+        e_is_tl = graph.ep.is_tl
         dist = graph.new_vertex_property('int', val=999999)
-        maxdist = manhattan(graph.vp.coord[ovt], graph.vp.coord[dvt])
-        logging.info(f"walking from {graph.vp.coord[ovt]} to {graph.vp.coord[dvt]}")
+        maxdist = manhattan(coord[ovt], coord[dvt])
+        logging.info(f"walking from {coord[ovt]} to {coord[dvt]}")
         logging.info(f"Trivial distance would be {maxdist} to walk")
-        visitor = Visitor(graph, dvt, dist)
-        visitor = DijkstraVisitor()
         link_vertex(graph, ovt, maxdist)
         link_vertex(graph, dvt, maxdist)
         starttime = time.time()
-        dist, pred = dijkstra_search(graph, weight, ovt, visitor, dist_map=dist, infinity=999999)
+        vertex_list, edge_list = shortest_path(graph, ovt, dvt, weight)
         logging.info(f"search took {time.time() - starttime} seconds")
         logging.debug(f"ovt has degree {ovt.out_degree()}, dvt has degree {dvt.out_degree()}")
-        p = pred[dvt]
-        print(f"Shortest distance: {dist[dvt]}")
-        while not p == ovt:
-            print(p)
-            p = pred[p]
-    logging.debug(f"Edges: {graph.num_edges()}")
+        logging.debug(f"Edges: {graph.num_edges()}")
 
-    if args.draw_graph:
+        vert = tuple(coord[vertex_list.pop(0)])
+        dist = 0
+        print(f"you start at {vert}")
+        while vertex_list:
+            msg = ""
+            edg = edge_list.pop(0)
+            oldvert = vert
+            vert = tuple(coord[vertex_list.pop(0)])
+            if e_is_tl[edg]:
+                print(f"Translocate to {vert}")
+            else:
+                dist += weight[edg]
+                dir = cardinal_dir(oldvert, vert)
+                print(f"Move {weight[edg]}m {dir} to {vert}")
+
+
+        print(f"You arrive at your destination after {(dist / 1000):.2f}km of travel!")
+
+
+
+    if config.drawgraph:
         graph_draw(graph, pos=graph.vp.coord.copy('vector<double>'), nodesfirst=False, ink_scale=0.5,
                        output_size=(2048, 2048), output='graph.png')
     sys.exit()

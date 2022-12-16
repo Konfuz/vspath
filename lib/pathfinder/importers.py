@@ -2,13 +2,15 @@
 import logging
 import re
 import graph_tool as gt
-import graph_tool.util
-from lib.pathfinder.util import manhattan
+from lib.pathfinder.util import manhattan, get_trader_type
+from lib.pathfinder.config import config
 
 
 from lib.pathfinder.datastructures import Node
-TL_COST = 100  # It *is* some effort to walk down a ladder and wait for the TL
-LINK_DIST = 10000
+TL_COST = config.tl_cost  # It *is* some effort to walk down a ladder and wait for the TL
+TL_LINK_DIST = config.link_dist_tl
+TRADER_LINK_DIST = config.link_dist_trader
+GLOBAL_OFFSET = tuple(config.global_offset)
 
 
 class AbstractImporter():
@@ -22,17 +24,21 @@ class AbstractImporter():
         self.graph = graph
         if not graph:
             self.graph = gt.Graph(directed=False)
-            self.graph.vp['is_tl'] = self.graph.new_vertex_property('bool')
+            self.graph.vp['is_tl'] = self.graph.new_vertex_property('bool', val=False)
             self.graph.vp['coord'] = self.graph.new_vertex_property('vector<int>')
-            self.graph.vp['x_coord'] = self.graph.new_vertex_property('int')
-            self.graph.vp['z_coord'] = self.graph.new_vertex_property('int')
-            self.graph.ep['weight'] = self.graph.new_edge_property('int')
+            self.graph.vp['elevation'] = self.graph.new_vertex_property('int', val=0)
+            self.graph.ep['weight'] = self.graph.new_edge_property('int', val=0)
+            self.graph.ep['is_tl'] = self.graph.new_edge_property('bool', val=False)
+            self.graph.vp['is_trader'] = self.graph.new_vertex_property('bool', val=False)
+            self.graph.vp['trader_name'] = self.graph.new_vertex_property('string')
+            self.graph.vp['trader_type'] = self.graph.new_vertex_property('int')
 
         print(self.graph)
-    def do_import(self, filepath):
+    def do_import(self):
         raise NotImplementedError
 
     def add_tl(self, origin, destination):
+        """Create vertices for a given translocator-pair"""
         if origin in self.graph.vp.coord:
             logging.debug(f"TL {origin} to {destination} already known")
             return
@@ -40,46 +46,91 @@ class AbstractImporter():
         dst_vt = self.graph.add_vertex()
         oe = self.graph.add_edge(org_vt, dst_vt)
         ie = self.graph.add_edge(dst_vt, org_vt)
-        self.graph.vp.coord[org_vt] = origin
-        self.graph.vp.coord[dst_vt] = destination
+        ox, oy, oz = origin
+        dx, dy, dz = destination
+        self.graph.vp.coord[org_vt] = (ox, oz)
+        self.graph.vp.coord[dst_vt] = (dx, dz)
+        self.graph.vp.elevation[org_vt] = oy
+        self.graph.vp.elevation[dst_vt] = dy
         self.graph.ep.weight[oe] = TL_COST
         self.graph.ep.weight[ie] = TL_COST
         self.graph.vp.is_tl[org_vt] = True
         self.graph.vp.is_tl[dst_vt] = True
 
+    def add_trader(self, pos, name, description):
+        """Create Trader Vertex in the NavGraph"""
+        if pos in self.graph.vp.coord:
+            logging.debug(f"Adding Trader failed, already a node at {pos}")
+            return
+        vt = self.graph.add_vertex()
+        self.graph.vp.is_trader[vt] = True
+        self.graph.vp.coord[vt] = (pos[0], pos[2])
+        self.graph.vp.elevation[vt] = pos[1]
+        self.graph.vp.trader_name[vt] = name
+        self.graph.vp.trader_type[vt] = get_trader_type(description)
+
     def make_connections(self):
-        #self.graph.set_vertex_filter(self.graph.vp.is_tl)
-        # FIXME: Two TL on the same horizontinal coordinate will cause issues
+        """Create Edges in the NavGraph
+
+        TL are Linked to all other TL closer than *link_dist_tl*
+        Traders are Linked to all TL closer than *link_dist_trader*
+        """
+
+        trader_view = gt.GraphView(self.graph, vfilt=self.graph.vp.is_trader)
+        tl_view = gt.GraphView(self.graph, vfilt=self.graph.vp.is_tl)
         num = 0
-        for ovt, o_coord in self.graph.iter_vertices([self.graph.vp.coord]):
-            for dvt, d_coord in self.graph.iter_vertices([self.graph.vp.coord]):
+
+        # Link Translocators to each other
+        for ovt, o_coord in tl_view.iter_vertices([self.graph.vp.coord]):
+            for dvt, d_coord in tl_view.iter_vertices([self.graph.vp.coord]):
                 if self.graph.edge(ovt, dvt):
                     continue  # no need to link what is already there
                 dist = manhattan(o_coord, d_coord)
-                if 0 < dist < LINK_DIST:
+                if 0 < dist < TL_LINK_DIST:
                     num += 1
                     e = self.graph.add_edge(ovt, dvt)
-                    assert(e)
                     self.graph.ep.weight[e] = dist
+                    self.graph.ep.is_tl[e] = True
+
+        # Link Traders to Translocators
+        for trade_vt, trade_coord in trader_view.iter_vertices([self.graph.vp.coord]):
+            for tl_vt, tl_coord in tl_view.iter_vertices([self.graph.vp.coord]):
+                if self.graph.edge(trade_vt, tl_vt):
+                    continue  # no need to link what is already there
+                dist = manhattan(trade_coord, tl_coord)
+                if 0 < dist < TRADER_LINK_DIST:
+                    num += 1
+                    e = self.graph.add_edge(trade_vt, tl_vt)
+                    self.graph.ep.weight[e] = dist
+
         logging.info(f"added {num} Edges")
-        #self.graph.set_vertex_filter(None)
 
 class CampaignCartographerImporter(AbstractImporter):
+    """Manage Import from an Campaign-Cartographer export .json"""
     def do_import(self):
         import json
         with open(self.filepath) as dbfile:
             db = json.load(dbfile)
             for item in db['Waypoints']:
-                try:
-                    dest = re.match('Translocator to \((-*\d+), -*\d+, (-*\d+)\)', item["Title"]).group(1,2)
-                except AttributeError:
-                    continue
-                position = item["Position"]
-                origin = (int(position["X"]) - 500000, int(position["Z"] - 500000))
-                dest = (int(dest[0]), int(dest[1]))
-                self.translocators.add(Node(origin, dest))
+                position = (
+                    int(item["Position"]['X']) - GLOBAL_OFFSET[0],
+                    int(item['Position']['Y']),
+                    int(item['Position']['Z']) - GLOBAL_OFFSET[1])
+                if item['ServerIcon'] == 'trader':
+                    title = item['Title'].strip('Local Goods - ')
+                    match = re.match("(\w+) the (\w+)", title)
+                    if match:
+                        name, description = match.groups()
+                        self.add_trader(position, name, description)
+                elif item['ServerIcon'] == 'spiral':
+                    match = re.match('Translocator to \((-*\d+), (-*\d+), (-*\d+)\)', item["Title"])
+                    if match:
+                        dest = [int(_) for _ in match.groups()]
+                        self.add_tl(position, dest)
 
 class GeojsonImporter(AbstractImporter):
+    """Manage Import from an webmap geojson db"""
+    # TODO: Reimplement for use by graphtool
     def do_import(self):
         import json
         with open(self.filepath) as dbfile:
@@ -88,7 +139,6 @@ class GeojsonImporter(AbstractImporter):
                 try:
                     origin, dest = item['geometry']['coordinates']
                 except KeyError:
-                    logging.warning(f"missing coordinate in {geometry}")
                     continue
                 origin = (int(origin[0]), -int(origin[1]))
                 dest = (int(dest[0]), -int(dest[1]))
@@ -100,6 +150,7 @@ class TSVImporter(AbstractImporter):
 
     def do_import(self):
 
+        raise DeprecationWarning  # This is no longer supported
         import csv
 
         def to_2d_coord(field):
@@ -135,7 +186,6 @@ class TSVImporter(AbstractImporter):
                         continue
                     coord = to_2d_coord(row['Location'])
                     try:
-                        self.traders[kind]
                         self.traders[kind].append(coord)
                     except KeyError:
                         self.traders[kind] = [coord]

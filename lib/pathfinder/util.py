@@ -1,5 +1,8 @@
 import math
 import re
+import logging
+import graph_tool as gt
+from graph_tool.util import find_vertex
 
 trader_enum = {
     0: 'unknown',
@@ -52,7 +55,7 @@ def get_trader_type(description):
     if 'luxuries' in description: return 12
     return 0
 
-def parse_coord(coord_str):
+def parse_coord(coord_str, graph):
     try:
         x, y = re.split(',', coord_str)
         x = int(x)
@@ -60,9 +63,12 @@ def parse_coord(coord_str):
         return (x, y)
     except ValueError:
         logging.debug("coordinate could not be parsed as x,y")
-    try:
-        return landmarks[coord_str]
-    except KeyError:
-        logging.error(f"Unknown coordinate: {coord_str}")
-    return None
 
+    view = gt.GraphView(graph, vfilt=graph.vp.is_landmark)
+    result = find_vertex(view, graph.vp.landmark_name, coord_str)
+    if not result:
+        logging.error(f'could not find a location for {coord_str}')
+        return None
+    if len(result) > 1:
+        logging.warning(f'found {len(result)} possible locations for {coord_str} choosing the first one')
+    return graph.vp.coord[result[0]]

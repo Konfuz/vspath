@@ -9,6 +9,7 @@ from lib.pathfinder.config import config
 from lib.pathfinder.datastructures import Node
 TL_COST = config.tl_cost  # It *is* some effort to walk down a ladder and wait for the TL
 TL_LINK_DIST = config.link_dist_tl
+LANDMARK_LINK_DIST = config.link_dist_landmark
 TRADER_LINK_DIST = config.link_dist_trader
 GLOBAL_OFFSET = tuple(config.global_offset)
 
@@ -32,6 +33,9 @@ class AbstractImporter():
             self.graph.vp['is_trader'] = self.graph.new_vertex_property('bool', val=False)
             self.graph.vp['trader_name'] = self.graph.new_vertex_property('string')
             self.graph.vp['trader_type'] = self.graph.new_vertex_property('int')
+            self.graph.vp['is_landmark'] = self.graph.new_vertex_property('bool', val=False)
+            self.graph.vp['landmark_name'] = self.graph.new_vertex_property('string')
+            self.graph.vp['landmark_type'] = self.graph.new_vertex_property('int')
 
         print(self.graph)
     def do_import(self):
@@ -69,6 +73,17 @@ class AbstractImporter():
         self.graph.vp.trader_name[vt] = name
         self.graph.vp.trader_type[vt] = get_trader_type(description)
 
+    def add_landmark(self, pos, name, landmark_type=None):
+        if pos in self.graph.vp.coord:
+            logging.debug(f"Adding Landmark failed, already a node at {pos}")
+            return
+        vt = self.graph.add_vertex()
+        self.graph.vp.is_landmark[vt] = True
+        self.graph.vp.coord[vt] = (pos[0], pos[2])
+        self.graph.vp.elevation[vt] = pos[1]
+        self.graph.vp.landmark_name[vt] = name
+        self.graph.vp.landmark_type[vt] = landmark_type
+
     def make_connections(self):
         """Create Edges in the NavGraph
 
@@ -78,30 +93,31 @@ class AbstractImporter():
 
         trader_view = gt.GraphView(self.graph, vfilt=self.graph.vp.is_trader)
         tl_view = gt.GraphView(self.graph, vfilt=self.graph.vp.is_tl)
+        landmark_view = gt.GraphView(self.graph, vfilt=self.graph.vp.is_landmark)
         num = 0
 
+        def link(view1, view2, maxdist, prop=None):
+            nonlocal num
+            for vt1, coord1 in view1.iter_vertices([self.graph.vp.coord]):
+                for vt2, coord2 in view2.iter_vertices([self.graph.vp.coord]):
+                    if self.graph.edge(vt1, vt2):
+                        continue  # no need to link what is already there
+                    dist = manhattan(coord1, coord2)
+                    if 0 < dist < maxdist:
+                        num += 1
+                        e = self.graph.add_edge(vt1, vt2)
+                        self.graph.ep.weight[e] = dist
+                        if prop:
+                            prop[e] = True
+
         # Link Translocators to each other
-        for ovt, o_coord in tl_view.iter_vertices([self.graph.vp.coord]):
-            for dvt, d_coord in tl_view.iter_vertices([self.graph.vp.coord]):
-                if self.graph.edge(ovt, dvt):
-                    continue  # no need to link what is already there
-                dist = manhattan(o_coord, d_coord)
-                if 0 < dist < TL_LINK_DIST:
-                    num += 1
-                    e = self.graph.add_edge(ovt, dvt)
-                    self.graph.ep.weight[e] = dist
-                    self.graph.ep.is_tl[e] = True
+        link(tl_view, tl_view, TL_LINK_DIST, self.graph.ep.is_tl)
 
         # Link Traders to Translocators
-        for trade_vt, trade_coord in trader_view.iter_vertices([self.graph.vp.coord]):
-            for tl_vt, tl_coord in tl_view.iter_vertices([self.graph.vp.coord]):
-                if self.graph.edge(trade_vt, tl_vt):
-                    continue  # no need to link what is already there
-                dist = manhattan(trade_coord, tl_coord)
-                if 0 < dist < TRADER_LINK_DIST:
-                    num += 1
-                    e = self.graph.add_edge(trade_vt, tl_vt)
-                    self.graph.ep.weight[e] = dist
+        link(trader_view, tl_view, TRADER_LINK_DIST)
+
+        # Link Landmarks to Translocators
+        link(landmark_view, tl_view, LANDMARK_LINK_DIST)
 
         logging.info(f"added {num} Edges")
 
@@ -127,6 +143,8 @@ class CampaignCartographerImporter(AbstractImporter):
                     if match:
                         dest = [int(_) for _ in match.groups()]
                         self.add_tl(position, dest)
+                elif item['ServerIcon'] == 'home':
+                    self.add_landmark(position, item['Title'], landmark_type=1)
 
 class GeojsonImporter(AbstractImporter):
     """Manage Import from an webmap geojson db"""

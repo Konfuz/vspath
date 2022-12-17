@@ -18,6 +18,7 @@ defaults = {
     'dbfile': None,  # Import File
     'link_dist_tl': 10000,
     'link_dist_trader': 1000,
+    'link_dist_landmark': 1000,
     'tl_cost': 0,
     'global_offset': (500000, 50000)
 }

@@ -124,9 +124,9 @@ if __name__ == "__main__":
     # Check for an actual pathfinding task and conduct it
     origin = destination = None
     if config.origin:
-        origin = parse_coord(config.origin)
+        origin = parse_coord(config.origin, graph)
     if config.goal:
-        destination = parse_coord(config.goal)
+        destination = parse_coord(config.goal, graph)
     if origin and destination:
         if not graph:
             logging.error("No Graph-Data available. Try importing some data first before searching in it")
@@ -148,14 +148,17 @@ if __name__ == "__main__":
         else:
             dvt = graph.add_vertex()
             graph.vp.coord[dvt] = destination
+
+        # add the trivial connection (walking from origin to destination)
         edg = graph.add_edge(ovt, dvt)
         graph.ep.weight[edg] = manhattan(origin, destination)
+
         coord = graph.vp.coord
         weight = graph.ep.weight
         e_is_tl = graph.ep.is_tl
-        dist = graph.new_vertex_property('int', val=999999)
+
+        # Link the temporary vertices for start and endpoint
         maxdist = manhattan(coord[ovt], coord[dvt])
-        logging.info(f"walking from {coord[ovt]} to {coord[dvt]}")
         logging.info(f"Trivial distance would be {maxdist} to walk")
         link_vertex(graph, ovt, maxdist)
         link_vertex(graph, dvt, maxdist)

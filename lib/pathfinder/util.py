@@ -1,4 +1,5 @@
 import math
+import re
 
 trader_enum = {
     0: 'unknown',
@@ -50,4 +51,18 @@ def get_trader_type(description):
     if 'pottery' in description: return 11
     if 'luxuries' in description: return 12
     return 0
+
+def parse_coord(coord_str):
+    try:
+        x, y = re.split(',', coord_str)
+        x = int(x)
+        y = int(y)
+        return (x, y)
+    except ValueError:
+        logging.debug("coordinate could not be parsed as x,y")
+    try:
+        return landmarks[coord_str]
+    except KeyError:
+        logging.error(f"Unknown coordinate: {coord_str}")
+    return None
 

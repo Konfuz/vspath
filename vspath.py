@@ -12,9 +12,9 @@ import graph_tool.util.libgraph_tool_util
 from graph_tool.draw import graph_draw
 from graph_tool.search import AStarVisitor, astar_search, dijkstra_search, DijkstraVisitor
 from graph_tool.topology import shortest_path
+from lib.pathfinder.narrate import narrate_path
 from lib.pathfinder.importers import get_importer
-from lib.pathfinder.datastructures import Node, Route
-from lib.pathfinder.util import cardinal_dir, manhattan
+from lib.pathfinder.util import cardinal_dir, manhattan, parse_coord
 from lib.pathfinder.config import config
 
 logging.basicConfig(level=logging.DEBUG)
@@ -118,19 +118,7 @@ if __name__ == "__main__":
     if config.listlandmarks:
         pass  #TODO: Landmarks currently no thing
 
-    def parse_coord(coord_str):
-        try:
-            x, y = re.split(',', coord_str)
-            x = int(x)
-            y = int(y)
-            return (x, y)
-        except ValueError:
-            logging.debug("coordinate could not be parsed as x,y")
-        try:
-            return landmarks[coord_str]
-        except KeyError:
-            logging.error(f"Unknown coordinate: {coord_str}")
-        return None
+
 
 
     # Check for an actual pathfinding task and conduct it
@@ -174,27 +162,8 @@ if __name__ == "__main__":
         starttime = time.time()
         vertex_list, edge_list = shortest_path(graph, ovt, dvt, weight)
         logging.info(f"search took {time.time() - starttime} seconds")
-        logging.debug(f"ovt has degree {ovt.out_degree()}, dvt has degree {dvt.out_degree()}")
-        logging.debug(f"Edges: {graph.num_edges()}")
 
-        vert = tuple(coord[vertex_list.pop(0)])
-        dist = 0
-        print(f"you start at {vert}")
-        while vertex_list:
-            msg = ""
-            edg = edge_list.pop(0)
-            oldvert = vert
-            vert = tuple(coord[vertex_list.pop(0)])
-            if e_is_tl[edg]:
-                print(f"Translocate to {vert}")
-            else:
-                dist += weight[edg]
-                dir = cardinal_dir(oldvert, vert)
-                print(f"Move {weight[edg]}m {dir} to {vert}")
-
-
-        print(f"You arrive at your destination after {(dist / 1000):.2f}km of travel!")
-
+        narrate_path(graph, vertex_list, edge_list)
 
 
     if config.drawgraph:

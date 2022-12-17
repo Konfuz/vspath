@@ -60,6 +60,8 @@ class AbstractImporter():
         self.graph.ep.weight[ie] = TL_COST
         self.graph.vp.is_tl[org_vt] = True
         self.graph.vp.is_tl[dst_vt] = True
+        self.graph.ep.is_tl[oe] = True
+        self.graph.ep.is_tl[ie] = True
 
     def add_trader(self, pos, name, description):
         """Create Trader Vertex in the NavGraph"""
@@ -96,7 +98,7 @@ class AbstractImporter():
         landmark_view = gt.GraphView(self.graph, vfilt=self.graph.vp.is_landmark)
         num = 0
 
-        def link(view1, view2, maxdist, prop=None):
+        def link(view1, view2, maxdist):
             nonlocal num
             for vt1, coord1 in view1.iter_vertices([self.graph.vp.coord]):
                 for vt2, coord2 in view2.iter_vertices([self.graph.vp.coord]):
@@ -107,11 +109,9 @@ class AbstractImporter():
                         num += 1
                         e = self.graph.add_edge(vt1, vt2)
                         self.graph.ep.weight[e] = dist
-                        if prop:
-                            prop[e] = True
 
-        # Link Translocators to each other
-        link(tl_view, tl_view, TL_LINK_DIST, self.graph.ep.is_tl)
+        # Link Translocators to each other via walk
+        link(tl_view, tl_view, TL_LINK_DIST)
 
         # Link Traders to Translocators
         link(trader_view, tl_view, TRADER_LINK_DIST)
@@ -145,6 +145,8 @@ class CampaignCartographerImporter(AbstractImporter):
                         self.add_tl(position, dest)
                 elif item['ServerIcon'] == 'home':
                     self.add_landmark(position, item['Title'], landmark_type=1)
+                elif item['ServerIcon'] == 'star1':
+                    self.add_landmark(position, item['Title'], landmark_type=2)
 
 class GeojsonImporter(AbstractImporter):
     """Manage Import from an webmap geojson db"""

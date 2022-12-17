@@ -13,16 +13,20 @@ def narrate_path(graph, vertex_list, edge_list):
     e_is_tl = graph.ep.is_tl
     vert = tuple(coord[vertex_list.pop(0)])
     dist = 0
-    print(f"you start at {vert}")
+    step = 0
+    num_tl = 0
+    route = f"\n{step}. You start at {vert}.\n"
     while vertex_list:
-        msg = ""
+        step += 1
         edg = edge_list.pop(0)
         oldvert = vert
         vert = tuple(coord[vertex_list.pop(0)])
         if e_is_tl[edg]:
-            print(f"Translocate to {vert}")
+            route += f"    translocate\n"
+            num_tl += 1
         else:
             dist += weight[edg]
             direction = cardinal_dir(oldvert, vert)
-            print(f"Move {weight[edg]}m {direction} to {vert}")
-    print(f"You arrive at your destination after {(dist / 1000):.2f}km of travel!")
+            route += f"{step}. Move {direction} {weight[edg]}m from {oldvert} to {vert}.\n"
+    route += f"\nYou arrive at your destination after {(dist / 1000):.2f}km of travel using {num_tl} TL!"
+    print(route)

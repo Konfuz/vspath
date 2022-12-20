@@ -13,70 +13,17 @@ from graph_tool.draw import graph_draw
 from graph_tool.search import AStarVisitor, astar_search, dijkstra_search, DijkstraVisitor
 from graph_tool.topology import shortest_path
 from lib.pathfinder.narrate import narrate_path
-from lib.pathfinder.importers import get_importer
+from lib.pathfinder.importers import do_import
 from lib.pathfinder.util import cardinal_dir, manhattan, parse_coord
 from lib.pathfinder.config import config
+from lib.pathfinder.ui import Terminal, Prompt
+from lib.pathfinder.commander import MasterCommander
+from textual.app import App
+from textual.widgets import Header
 
 logging.basicConfig(level=logging.DEBUG)
-MAX_DIST = 16000  # Maximum allowed distance of the next TL in a chain
-tls = set()
-landmarks = {}
-traders = {}
 
-def describe_route(vertex_list, edge_list):
-    """Generate written description of a path."""
-    hops = 0
-    total_dist = 0
-    v1 = vertex_list.pop(0)
-    print(f"You are starting at {coord[v1]}")
-    v2 = vertex_list.pop(0)
-    edg = edge_list.pop(0)
-
-    while route:
-        dist = weight[edg]
-        org = coord[v1]
-        dst = coord[v2]
-        direction = cardinal_dir(org, dst)
-
-        total_dist += dist
-        hops += 1
-        print(f"Move {int(dist)}m {direction} to {next_wp.origin} and Teleport to {next_wp.destination}")
-        old_wp = next_wp
-        next_wp = vertex_list.pop(0)
-
-    dist = manhattan(as_origin(old_wp), as_destination(next_wp))
-    total_dist += dist
-    origin = as_origin(old_wp)
-    destination = as_destination(next_wp)
-    print(f"Move {int(dist)}m {cardinal_dir(origin, destination)} to your destination {next_wp}.")
-    print(f"The route is {(total_dist / 1000):.2f}km long and uses {hops} hops.")
-
-class Visitor(AStarVisitor):
-    """Perform actions during A* Algorithm"""
-    def __init__(self, g, target, dist, vfilt=None):
-        self.graph = gt.GraphView(g, vfilt=vfilt)
-        self.target = target
-        self.target_coord = self.graph.vp.coord[self.target]
-        self.starttime = time.time()
-        self.dist = dist
-        vertices = self.graph.num_vertices()
-        edges = self.graph.num_edges()
-        self.touched = 0
-        self.added = 0
-        self.expanded = {}
-        logging.info(f"Searching path through {vertices} vertices with {edges} edges")
-
-    def edge_relaxed(self, e):
-        logging.debug(f"Current dist: {self.dist[e.target()]}")
-        if e.target() == self.target:
-            dur = time.time() - self.starttime
-            logging.info(f"Finished search in {dur} seconds")
-            #raise gt.search.StopSearch()
-
-    def manhattan_heuristic(v, target):
-        dist = manhattan(self.graph.vp.coord[v], self.graph.vp.coord[target])
-        logging.debug(f"dist of {v} est: {dist}")
-        return dist
+MAX_DIST = config.link_dist_tl
 
 
 def link_vertex(g, u, maxdist=MAX_DIST):
@@ -88,6 +35,29 @@ def link_vertex(g, u, maxdist=MAX_DIST):
             edg = g.add_edge(u, v)
             g.ep.weight[edg] = dist
     return
+
+class VSPath(App):
+    CSS_PATH='config/ui.css'
+    def __init__(self):
+        self.commander = MasterCommander()
+        self.graph = None
+        super().__init__()
+
+    def compose(self):
+        """Compose app-widgets"""
+        yield Header(id='header', show_clock=True)
+        yield Terminal(id='textlog')
+        yield Prompt(id='prompt', classes='box')
+
+    def on_prompt_submitted(self, message):
+        self.query_one(Terminal).write(message.user_input)
+        self.commander.process(message.user_input)
+
+    def action_import_file(self, filename):
+        self.graph = do_import(filename, self.graph)
+
+    def action_pathfind(self, origin, destination):
+        pass
 
 
 if __name__ == "__main__":
@@ -101,14 +71,7 @@ if __name__ == "__main__":
 
     # import new data
     if config.dbfile:
-        importer = get_importer(config.dbfile, graph)
-        existing = importer.graph.num_vertices()
-        importer.do_import()
-        importer.make_connections()
-        new = importer.graph.num_vertices()
-        logging.info(f"Added {new - existing} Nodes for a total of {new}.")
-        importer.graph.save(config.data_file)
-        graph = importer.graph
+        graph = do_import()
 
     if config.clean:
         # override Graph file with empty Graph
@@ -116,10 +79,8 @@ if __name__ == "__main__":
         gt.Graph.save(config.data_file, Graph(directed=True))
 
     if config.listlandmarks:
+        logging.warning("Landmark listing not a feature at the moment")
         pass  #TODO: Landmarks currently no thing
-
-
-
 
     # Check for an actual pathfinding task and conduct it
     origin = destination = None
@@ -167,6 +128,9 @@ if __name__ == "__main__":
         logging.info(f"search took {time.time() - starttime} seconds")
 
         narrate_path(graph, vertex_list, edge_list)
+    else:
+        app = VSPath()
+        app.run()
 
 
     if config.drawgraph:

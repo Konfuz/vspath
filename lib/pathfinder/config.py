@@ -7,7 +7,7 @@ import sys
 import re
 
 defaults = {
-    'config': 'config.yaml',
+    'config': 'config/config.yaml',
     'import': None,
     'clean': False,
     'origin': None,
@@ -34,14 +34,14 @@ def _load_config_file(config_path):
 
 def _parse_args():
     description = """Various pathfinding options for vintagestory using translocators"""
-    epilog = """Make backups. No Warranty, do not sue me if your parrot dies!"""
+    epilog = """Make backups. No Warranty. Do not sue me if your parrot dies!"""
     parser = argparse.ArgumentParser(description=__doc__,
                                      epilog=epilog)
     parser.add_argument('-i', '--import',
                         metavar='dbfile',
                         dest='dbfile',
                         help='file to import')
-    parser.add_argument('-c', '--config', help='path to config file', default='config.yaml')
+    parser.add_argument('-c', '--config', help='path to config file', default='config/config.yaml')
     parser.add_argument('--clean',
                         action='store_true',
                         help='clears the entire database')

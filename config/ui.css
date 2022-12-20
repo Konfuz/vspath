@@ -1,0 +1,20 @@
+Screen {
+    layout: vertical;
+    align-vertical: bottom;
+    content-align: left bottom;
+}
+
+.box {
+    height: 1fr;
+    border: solid green;
+}
+
+#prompt {
+    dock: bottom;
+    height: 1;
+}
+
+#textlog {
+    align: left bottom;
+    content-align: left bottom;
+}

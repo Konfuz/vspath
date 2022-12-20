@@ -220,3 +220,14 @@ def get_importer(filepath, graph):
     elif filepath.endswith('.json'):
         return CampaignCartographerImporter(filepath, graph)
     logging.error(f'Could not find a valid importer for {filepath}')
+
+
+def do_import(filename, graph=None):
+    importer = get_importer(filename, graph)
+    existing = importer.graph.num_vertices()
+    importer.do_import()
+    importer.make_connections()
+    new = importer.graph.num_vertices()
+    logging.info(f"Added {new - existing} Nodes for a total of {new}.")
+    importer.graph.save(config.data_file)
+    return importer.graph

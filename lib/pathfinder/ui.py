@@ -1,7 +1,6 @@
 from textual.app import App
 from textual.widgets import TextLog, Header, Input
 from textual.message import Message
-from logging import Handler
 from lib.pathfinder.commander import MasterCommander
 import sys
 
@@ -18,9 +17,7 @@ class Prompt(Input):
             self.value = ""
             event.stop()
 
-
-class Terminal(TextLog, Handler):
-
-    def emit(self, message: Message) -> bool:
-        self.write(message)
-
+class Terminal(TextLog):
+    def __init(self):
+        self.write("Terminal")
+        super().__init()

@@ -1,8 +1,4 @@
 import math
-import re
-import logging
-import graph_tool as gt
-from graph_tool.util import find_vertex
 
 trader_enum = {
     0: 'unknown',
@@ -19,6 +15,38 @@ trader_enum = {
     11: 'pottery',
     12: 'luxuries'
 }
+
+trader_colors = {0: '#303030',
+                 1: '#00f0f0',
+                 2: '#c8c080',
+                 3: '#ff0000',
+                 4: '#008000',
+                 5: '#808080',
+                 6: '#c8c080',
+                 7: '#ff8000',
+                 8: '#ffff00',
+                 9: '#a000a0',
+                 10: '#ffc0c0',
+                 11: '#805c00',
+                 12: '#0000ff'
+                 }
+
+trader_descriptions = {0: 'Unknown Trader',
+                       1: 'Artisan',
+                       2: 'Agricultural Trader',
+                       3: 'Building Materials Trader',
+                       4: 'Clothier',
+                       5: 'Commodities Trader',
+                       6: 'Food Trader',
+                       7: 'Furniture Trader',
+                       8: 'Survival Goods Trader',
+                       9: 'Treasure hunter',
+                       10: 'Glass Trader',
+                       11: 'Pottery Trader',
+                       12: 'Luxuries Trader'
+                       }
+
+
 def cardinal_dir(origin, destination):
     """Return Cardinal Direction String from coordinate origin to destination"""
 
@@ -27,6 +55,7 @@ def cardinal_dir(origin, destination):
     dt_y = destination[1] - origin[1]
     ix = round(math.atan2(dt_x, -dt_y) / (2 * math.pi) * len(dirs))
     return dirs[ix]
+
 
 def manhattan(a, b):
     x = abs(a[0] - b[0])
@@ -54,21 +83,3 @@ def get_trader_type(description):
     if 'pottery' in description: return 11
     if 'luxuries' in description: return 12
     return 0
-
-def parse_coord(coord_str, graph):
-    try:
-        x, y = re.split(',', coord_str)
-        x = int(x)
-        y = int(y)
-        return (x, y)
-    except ValueError:
-        logging.debug("coordinate could not be parsed as x,y")
-
-    view = gt.GraphView(graph, vfilt=graph.vp.is_landmark)
-    result = find_vertex(view, graph.vp.landmark_name, coord_str)
-    if not result:
-        logging.error(f'could not find a location for {coord_str}')
-        return None
-    if len(result) > 1:
-        logging.warning(f'found {len(result)} possible locations for {coord_str} choosing the first one')
-    return graph.vp.coord[result[0]]

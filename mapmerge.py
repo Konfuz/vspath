@@ -6,6 +6,7 @@ from datetime import datetime
 from copy import deepcopy
 import argparse
 import logging
+from lib.pathfinder.util import get_trader_type, trader_enum, trader_colors, trader_descriptions
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger()
 
@@ -104,14 +105,10 @@ def process_trader(indata, waypoints, offset):
     }
     name = indata['properties']['name']
     wares = indata['properties']['wares']
-    try:
-        spec['Title'] = f"{name} the {JOB_REF[wares]}"
-    except KeyError:
-        spec['Title'] = f"{name} trading {wares}"
-    try:
-        spec['Colour'] = COLOR_REF[wares]
-    except KeyError:
-        pass
+    trader_type = get_trader_type(wares)
+    spec['Title'] = f"{name} the {trader_descriptions[trader_type]}"
+    spec['Colour'] = trader_colors[trader_type]
+
     x = spec['Position']['X'] = indata['geometry']['coordinates'][0] + offset[0]
     spec['Position']['Y'] = indata['properties']['z']  # Webmap calls the vs-Y "z"
     z = spec['Position']['Z'] = -indata['geometry']['coordinates'][1] + offset[1]  # Webmap has Z * -1 for "reasons"
@@ -162,7 +159,7 @@ def process_cc_json(filename, map_features):
     with open(filename) as f:
         data = json.load(f)
         for item in data['Waypoints']:
-            pos = (item['Position']['X'], item['Position']['Y'])
+            pos = (int(item['Position']['X']), int(item['Position']['Y']))
             if pos not in known_features:
                 map_features.append(item)
                 known_features[pos] = item

@@ -6,49 +6,23 @@ from datetime import datetime
 from copy import deepcopy
 import argparse
 import logging
-from lib.pathfinder.util import get_trader_type, trader_enum, trader_colors, trader_descriptions
+from lib.pathfinder.util import get_trader_type, trader_enum, trader_colors, trader_descriptions, manhattan
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger()
 
 known_features = {}  # (x,z) key -> feature_spec
 doublets = 0
-
-def foo():
-    known_features['foo'] = 'baa'
-    doublets += 1
-
-
-COLOR_REF = {'Artisan': '#00f0f0',
-          'Agricultural': '#c8c080',
-    'Building materials': '#ff0000',
-              'Clothing': '#008000',
-           'Commodities': '#808080',
-                 'Foods': '#c8c080',
-             'Furniture': '#ff8000',
-              'Luxuries': '#0000ff',
-        'Survival goods': '#ffff00',
-       'Treasure hunter': '#a000a0',
-                 'Glass': '#ffc0c0',
-               'Pottery': '#805c00',
-               'Unknown': '#303030'
-  }
-
-JOB_REF = {'Artisan': 'Artisan',
-            'Agricultural': 'Agricultural Trader',
-    'Building materials': 'Building Materials Trader',
-              'Clothing': 'Clothier',
-           'Commodities': 'Commodities Trader',
-                 'Foods': 'Food Trader',
-             'Furniture': 'Furniture Trader',
-              'Luxuries': 'Luxuries Trader',
-        'Survival goods': 'Survival Goods Trader',
-       'Treasure hunter': 'Treasure hunter',
-                 'Glass': 'Glass Trader',
-               'Pottery': 'Pottery Trader',
-               'Unknown': 'Unknown Trader'
-  }
-
-
+def is_doubled(pos, feature):
+    server_icon = feature["ServerIcon"]
+    trader_type = get_trader_type(feature['Title'])
+    for key in known_features:
+        if manhattan(key, pos) < 10:
+            item = known_features[key]
+            if item['ServerIcon'] == server_icon and trader_type == get_trader_type(item['Title']):
+                log.debug(f"Considered doublet: {feature['Title']} {pos} =~ {key} {item['Title']}")
+                doublets += 1
+                return True
+    return False
 
 def process_translocator(indata, waypoints, offset):
     global known_features
@@ -112,12 +86,11 @@ def process_trader(indata, waypoints, offset):
     x = spec['Position']['X'] = indata['geometry']['coordinates'][0] + offset[0]
     spec['Position']['Y'] = indata['properties']['z']  # Webmap calls the vs-Y "z"
     z = spec['Position']['Z'] = -indata['geometry']['coordinates'][1] + offset[1]  # Webmap has Z * -1 for "reasons"
-    if (x, z) not in known_features:
+
+    if not is_doubled((x, z), spec):
         waypoints.append(spec)
         known_features[(x, z)] = spec
-    else:
-        doublets += 1
-        log.debug(f"Position {(x, z)} already has a feature")
+
     return waypoints
 
 def process_landmark(indata, outdata, offset):
@@ -160,12 +133,11 @@ def process_cc_json(filename, map_features):
         data = json.load(f)
         for item in data['Waypoints']:
             pos = (int(item['Position']['X']), int(item['Position']['Y']))
-            if pos not in known_features:
+
+            if not is_doubled(pos, item):
                 map_features.append(item)
                 known_features[pos] = item
-            else:
-                log.debug(f"Position {pos} already has a feature")
-                doublets += 1
+
     return map_features
 
 if __name__ == '__main__':

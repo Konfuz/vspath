@@ -65,7 +65,7 @@ class AbstractImporter():
 
     def add_trader(self, pos, name, description):
         """Create Trader Vertex in the NavGraph"""
-        if pos in self.graph.vp.coord:
+        if pos in self.graph.vp.coord.get_2d_array([0, 1])[:, 1:]:
             logging.debug(f"Adding Trader failed, already a node at {pos}")
             return
         vt = self.graph.add_vertex()
@@ -76,9 +76,9 @@ class AbstractImporter():
         self.graph.vp.trader_type[vt] = get_trader_type(description)
 
     def add_landmark(self, pos, name, landmark_type=None):
-        if pos in self.graph.vp.coord:
-            logging.debug(f"Adding Landmark failed, already a node at {pos}")
-            return
+        if pos in self.graph.vp.coord.get_2d_array([0, 1])[:, 1:]:
+                logging.debug(f"Adding Landmark failed, a node already exists at {pos}")
+                return
         vt = self.graph.add_vertex()
         self.graph.vp.is_landmark[vt] = True
         self.graph.vp.coord[vt] = (pos[0], pos[2])
@@ -144,9 +144,20 @@ class CampaignCartographerImporter(AbstractImporter):
                         dest = [int(_) for _ in match.groups()]
                         self.add_tl(position, dest)
                 elif item['ServerIcon'] == 'home':
-                    self.add_landmark(position, item['Title'], landmark_type=1)
+                    self.add_landmark(position, item['Title'].lower(), landmark_type=1)
                 elif item['ServerIcon'] == 'star1':
-                    self.add_landmark(position, item['Title'], landmark_type=2)
+                    self.add_landmark(position, item['Title'].lower(), landmark_type=2)
+
+class ProspectorImporter(AbstractImporter):
+    def do_impport(self):
+        import json
+        with open(self.filepath) as dbfile:
+            db = json.load(dbfile)
+        for item in db:
+            position = (item['X'], item['Z'])
+            _, _, ores = item['Message'].partition("Relative densities:")
+            ores = ores.split('\n')
+
 
 class GeojsonImporter(AbstractImporter):
     """Manage Import from an webmap geojson db"""
@@ -221,13 +232,3 @@ def get_importer(filepath, graph):
         return CampaignCartographerImporter(filepath, graph)
     logging.error(f'Could not find a valid importer for {filepath}')
 
-
-def do_import(filename, graph=None):
-    importer = get_importer(filename, graph)
-    existing = importer.graph.num_vertices()
-    importer.do_import()
-    importer.make_connections()
-    new = importer.graph.num_vertices()
-    logging.info(f"Added {new - existing} Nodes for a total of {new}.")
-    importer.graph.save(config.data_file)
-    return importer.graph

@@ -20,7 +20,8 @@ defaults = {
     'link_dist_trader': 1000,
     'link_dist_landmark': 1000,
     'tl_cost': 0,
-    'global_offset': (500000, 50000)
+    'global_offset': (500000, 50000),
+    'debugmode': True
 }
 
 

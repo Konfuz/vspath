@@ -2,16 +2,33 @@ import sys
 import logging
 import graph_tool
 import time
-from lib.pathfinder.util import manhattan, cardinal_dir
+import re
+from lib.pathfinder.util import manhattan, cardinal_dir, trader_enum
+from lib.pathfinder.importers import get_importer
 from lib.pathfinder.config import config
+from textual.message_pump import MessagePump
+from graph_tool import GraphView
+from graph_tool.util import find_vertex
+from graph_tool.topology import shortest_path, shortest_distance
 
 
-class MasterCommander:
+class NoGraphDataError(Exception):
+    pass
 
-    def __init__(self):
+
+class MasterCommander(MessagePump):
+
+    def __init__(self, parent, graph=None):
+        super().__init__(parent)
+        self.graph_commander = GraphCommander(graph)
         self.commands = {
-            'quit': self.do_quit
+            'quit': self.do_quit,
+            'debug': self.do_debug,
+            'route': self.do_route,
+            'import': self.do_import,
+            'closest': self.do_find_closest
         }
+
 
     def process(self, user_input):
         input = user_input.lower().split()
@@ -23,45 +40,113 @@ class MasterCommander:
     def do_quit(self, _):
         sys.exit(0)
 
+    def do_debug(self, args):
+        if not args:
+            return False
+        if args[0] == 'log':
+            self.do_log(args[1:])
+
+    def do_log(self, args):
+        call ={
+            'debug': logging.debug,
+            'info': logging.info,
+            'warning': logging.warning,
+            'error': logging.error,
+            'critical': logging.critical
+        }
+
+        try:
+            message = ' '.join(arg for arg in args[1:])
+        except IndexError:
+            message = "Debug message"
+        try:
+            call[args[0]](message)
+        except (KeyError, IndexError):
+            logging.debug(message)
+
+    def do_route(self, args):
+        if not len(args) == 2:
+            logging.info("usage: route  <from> <to>")
+            return
+        if not self.graph_commander.graph:
+            logging.error("Searching requires a Graph to be loaded")
+            return
+        origin = self.graph_commander.parse_coord(args.pop(0))
+        destination = self.graph_commander.parse_coord(args.pop(0))
+        if not origin or not destination:
+            logging.error("Aborting find route.")
+            return
+        vertex_list, edge_list = self.graph_commander.find_path(origin, destination)
+        description = self.graph_commander.narrate_path(vertex_list, edge_list)
+        logging.info(description)
+
+    def do_import(self, args):
+        if not args:
+            logging.info("usage: import <filepath>")
+            return
+        filename = ' '.join(args)
+        logging.info("importing may take some time...")
+        self.graph_commander.do_import(filename)
+        logging.info("import done.")
+
+    def do_find_closest(self, args):
+        if not args:
+            logging.info("usage: closest [trader] <pos>")
+            return
+        pos = self.graph_commander.parse_coord(args.pop(-1))
+        if args:
+            pass # TODO: Allow specification of trader-type
+        closest = self.graph_commander.closest_traders(pos)
+        for trader_type, trader_name, coord, dist in closest:
+            logging.info(f"{trader_type} {trader_name} {coord} {dist}m")
+
 class GraphCommander:
 
     def __init__(self, graph):
+        # TODO: Generate Graph on none
         self.graph = graph
 
-    def link_vertex(self, u, maxdist=config.link_dist_tl):
-        for v in self.graph.iter_vertices():
-            dist = manhattan(self.graph.vp.coord[u], self.graph.vp.coord[v])
+    def link_vertex(self, u, maxdist=config.link_dist_tl, graph=None):
+        """Link given vertext to all Nodes in range
 
-            if dist < maxdist and v != u:
+        Considers only TL-Nodes by default
+        """
+
+        if not graph:
+            graph = graph_tool.GraphView(self.graph, vfilt=self.graph.vp.is_tl)
+        u_pos = self.graph.vp.coord[u]
+        for vt, vt_pos in graph.iter_vertices([self.graph.vp.coord]):
+            dist = manhattan(u_pos, vt_pos)
+
+            if dist < maxdist and vt != u:
                 # logging.debug(f"{u}->{v} {dist}")
-                edg = self.graph.add_edge(u, v)
+                edg = self.graph.add_edge(u, vt)
                 self.graph.ep.weight[edg] = dist
         return
+
+    def find_or_add(self, position):
+        vt = graph_tool.util.find_vertex(self.graph, self.graph.vp.coord, position)
+        if vt:
+            if len(vt) > 1:
+                logging.warning(f"Found {len(vt)} vertices for position {tuple(position)}!")
+            vt = vt[0]
+            logging.debug(f"found {position} to be preexisting as vertex {vt}")
+        else:
+            vt = self.graph.add_vertex()
+            self.graph.vp.coord[vt] = position
+        return vt
 
     def find_path(self, origin, destination):
 
         if not self.graph:
             logging.error("No Graph-Data available. Try importing some data first before searching in it")
+            return
 
         # obtain origin vertex
-        ovt = graph_tool.util.find_vertex(self.graph, self.graph.vp.coord, origin)
-        if ovt:
-            assert(len(ovt)==1)
-            ovt = ovt[0]
-            logging.debug(f"found origin to be preexisting as vertex {ovt}")
-        else:
-            ovt = self.graph.add_vertex()
-            self.graph.vp.coord[ovt] = origin
+        ovt = self.find_or_add(origin)
 
         # obtain destination vertex
-        dvt = graph_tool.util.find_vertex(self.graph, self.graph.vp.coord, destination)
-        if dvt:
-            assert (len(dvt) == 1)
-            dvt = dvt[0]
-            logging.debug(f"found destination to be preexisting as vertex {dvt}")
-        else:
-            dvt = self.graph.add_vertex()
-            self.graph.vp.coord[dvt] = destination
+        dvt = self.find_or_add(destination)
 
         # add the trivial connection (walking from origin to destination)
         edg = self.graph.add_edge(ovt, dvt)
@@ -77,11 +162,62 @@ class GraphCommander:
         self.link_vertex(ovt, maxdist)
         self.link_vertex(dvt, maxdist)
         starttime = time.time()
-        vertex_list, edge_list = graph_tool.topology.shortest_path(self.graph, ovt, dvt, weight)
+        vertex_list, edge_list = shortest_path(self.graph, ovt, dvt, weight)
         logging.info(f"search took {time.time() - starttime} seconds")
         return vertex_list, edge_list
 
-    from lib.pathfinder.util import cardinal_dir
+    def closest_traders(self, origin, maxdist=500):
+        vt = self.find_or_add(origin)
+        trader_view = GraphView(self.graph, vfilt=self.graph.vp.is_trader)
+        self.link_vertex(vt, min(maxdist, config.link_dist_tl))
+        self.link_vertex(vt, maxdist, trader_view)
+        weights = self.graph.ep.weight
+        dist_map = shortest_distance(self.graph, vt, weights=weights, max_dist=maxdist)
+        closest = []
+        for vt, dist in trader_view.iter_vertices([dist_map]):
+            if dist < maxdist:
+                trader_type = trader_enum[self.graph.vp.trader_type[vt]]
+                trader_name = self.graph.vp.trader_name[vt]
+                coord = tuple(self.graph.vp.coord[vt])
+                closest.append((trader_type, trader_name, coord, dist))
+        return sorted(closest, key=lambda x: x[-1])
+
+
+    def do_import(self, filename, save=True):
+        importer = get_importer(filename, self.graph)
+        if not importer:
+            return
+        existing = importer.graph.num_vertices()
+        try:
+            importer.do_import()
+        except IOError as e:
+            logging.error(str(e))
+            return
+        importer.make_connections()
+        new = importer.graph.num_vertices()
+        logging.info(f"Added {new - existing} Nodes for a total of {new}.")
+        if save:
+            importer.graph.save(config.data_file)
+        self.graph = importer.graph
+
+    def parse_coord(self, coord_str):
+        graph = self.graph
+        try:
+            x, y = re.split(',', coord_str)
+            x = int(x)
+            y = int(y)
+            return (x, y)
+        except ValueError:
+            logging.debug("coordinate could not be parsed as x,y")
+
+        view = graph_tool.GraphView(graph, vfilt=graph.vp.is_landmark)
+        result = find_vertex(view, graph.vp.landmark_name, coord_str)
+        if not result:
+            logging.error(f'could not find a location for {coord_str}')
+            return None
+        if len(result) > 1:
+            logging.warning(f'found {len(result)} possible locations for {coord_str} choosing the first one')
+        return graph.vp.coord[result[0]]
 
     def narrate_path(self, vertex_list, edge_list):
         """Give textual description of a path

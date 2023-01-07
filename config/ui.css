@@ -6,7 +6,7 @@ Screen {
 
 .box {
     height: 1fr;
-    border: solid green;
+    border: solid $success;
 }
 
 #prompt {

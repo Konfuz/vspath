@@ -3,3 +3,4 @@ link_dist_trader: 1000 # Max Dist between Trader and TL that should be linked in
 global_offset: [512000, 517000]  # Difference from 0,0 Local to global coordinate (server-setting dependent)
 data_file: 'data/mystic_winds.gt'  # Location of current navgraph
 tl_cost: 100  # flat Cost for using a TL, helps avoid extra hops for little to no gain.
+debugmode: True

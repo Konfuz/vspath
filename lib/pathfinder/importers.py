@@ -177,56 +177,8 @@ class GeojsonImporter(AbstractImporter):
                 logging.debug(f"adding {origin}, {dest}")
 
 
-class TSVImporter(AbstractImporter):
-
-    def do_import(self):
-
-        raise DeprecationWarning  # This is no longer supported
-        import csv
-
-        def to_2d_coord(field):
-            dst = re.split('X|, Y|, Z', field)
-            dst = (int(dst[1]), int(dst[3]))
-            return dst
-
-        with open(self.filepath, newline='') as dbfile:
-            reader = csv.DictReader(dbfile, dialect='excel-tab')
-            for row in reader:
-                if row['\ufeffName'] == 'Translocator':
-
-                    org = to_2d_coord(row['Location'])
-
-                    if not row['Destination'] or row['Destination'] == '---':
-                        logging.info(
-                            f"TL at {org} " +
-                            f"Missing Destination. {row['Description']}")
-                        continue
-                    self.translocators.add(Node(org, to_2d_coord(row['Destination'])))
-                elif row['\ufeffName'] == 'Sign':
-                    try:
-                        landmark = re.split('<AM:\w+>', row['Description'])[1][1:]
-                    except IndexError:
-                        logging.warning(f"Malformed <AM:XXX>: {row['Description']}")
-                        continue
-                    self.landmarks[landmark] = to_2d_coord(row['Location'])
-                elif row['\ufeffName'] == 'Trader':
-                    try:
-                        name, kind = re.split(' the ', row['Description'])
-                    except ValueError:
-                        logging.warning(f"Trader could not be parsed: {row['Description']}")
-                        continue
-                    coord = to_2d_coord(row['Location'])
-                    try:
-                        self.traders[kind].append(coord)
-                    except KeyError:
-                        self.traders[kind] = [coord]
-        return
-
-
 def get_importer(filepath, graph):
-    if filepath.endswith('.tsv'):
-        return TSVImporter(filepath, graph)
-    elif filepath.endswith('.geojson'):
+    if filepath.endswith('.geojson'):
         return GeojsonImporter(filepath, graph)
     elif filepath.endswith('.json'):
         return CampaignCartographerImporter(filepath, graph)

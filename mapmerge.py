@@ -200,7 +200,7 @@ if __name__ == '__main__':
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
 
     parser.add_argument('inputfiles', nargs='+', metavar='inputfile',
-                        help="Any number of import files in decreasing preference")
+                        help="Any number of import files in decreasing preference. Both webmap and CC format accepted. ")
     parser.add_argument('-w', '--worldname', default='Unknown World',
                         help="Inserts this worldname to the export - recognized by CC")
     parser.add_argument('-o', '--output', default='export.json',

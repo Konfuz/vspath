@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""convert webmap geojson to a campaign-cartographer importable json"""
+"""Merge webmap-data and CampaignCartographer(CC) exports into a single CC-File"""
 
 import json
 from datetime import datetime
@@ -16,6 +16,11 @@ doublets = 0
 
 
 def is_doubled(pos, feature):
+    """
+    :param tuple pos: (x,z)
+    :param feature: feature-spec in CC-Format
+    :return bool: Is feature double?
+    """
     global doublets
     server_icon = feature["ServerIcon"]
     trader_type = get_trader_type(feature['Title'])
@@ -48,7 +53,7 @@ def process_translocator(indata, waypoints, offset):
             "ServerIcon": "spiral",
             "DisplayedIcon": "spiral",
             "Colour": "#FFFF00FF",
-            "Position": dict(X=tl[0]+offset[0], Y=depth, Z=-tl[1]+offset[1]),  # Webmap has Z * -1 for "reasons"
+            "Position": dict(X=tl[0] + offset[0], Y=depth, Z=-tl[1] + offset[1]),  # Webmap has Z * -1 for "reasons"
             "Pinned": False,
             "Selected": True
         }
@@ -155,6 +160,15 @@ def process_geojson(filename, map_features=[], no_traders=False, no_tls=False):
 
 
 def process_cc_json(filename, map_features, no_traders=False, no_tls=False):
+    """Attach features from a CampaignCartographer file
+    Apply filters, but leave entries otherwise unmodified.
+
+    :param filename: path to the export.json
+    :param list map_features: existing features
+    :param bool no_traders: Ignore trader-icons
+    :param no_tls:  Ignore spiral-icons
+    :return: map_features
+    """
     global known_features
     global doublets
     with open(filename) as f:
@@ -174,13 +188,23 @@ def process_cc_json(filename, map_features, no_traders=False, no_tls=False):
 
 
 if __name__ == '__main__':
-    epilog = """Join Webmapdata (geojson) and CampaignCartographer export-files (json) into one json"""
+    epilog = \
+        """    Caveats:
+        - Only the first feature for any given map-position will be processed
+        - Remember to specify the correct spawn-offset for your world!
+    TODO:
+        - Importing landmarks / bases from the webmap not yet supported
+    """
     parser = argparse.ArgumentParser(description=__doc__,
-                                     epilog=epilog)
+                                     epilog=epilog,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
 
-    parser.add_argument('inputfiles', nargs='+', metavar='inputfile')
-    parser.add_argument('-w', '--worldname', default='Unknown World')
-    parser.add_argument('-o', '--output', default='export.json')
+    parser.add_argument('inputfiles', nargs='+', metavar='inputfile',
+                        help="Any number of import files in decreasing preference")
+    parser.add_argument('-w', '--worldname', default='Unknown World',
+                        help="Inserts this worldname to the export - recognized by CC")
+    parser.add_argument('-o', '--output', default='export.json',
+                        help="write export to this file")
     parser.add_argument('--offset', metavar='x,z', help="absolute pos of the world spawn", default='500000,500000')
     parser.add_argument('--notraders', action='store_true', help="Ignore all landmarks with Trader icon")
     parser.add_argument('--notls', action='store_true', help="Ignore all landmarks with Spiral icon")

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Merge webmap-data and CampaignCartographer(CC) exports into a single CC-File"""
 
-import json
-from datetime import datetime
-from copy import deepcopy
 import argparse
+import json
 import logging
-from lib.pathfinder.util import get_trader_type, trader_enum, trader_colors, trader_descriptions, manhattan
+from datetime import datetime
+
+from lib.pathfinder.util import get_trader_type, trader_colors, trader_descriptions, manhattan
 
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger()

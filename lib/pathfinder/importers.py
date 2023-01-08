@@ -32,7 +32,7 @@ class AbstractImporter():
             self.graph.ep['is_tl'] = self.graph.new_edge_property('bool', val=False)
             self.graph.vp['is_trader'] = self.graph.new_vertex_property('bool', val=False)
             self.graph.vp['trader_name'] = self.graph.new_vertex_property('string')
-            self.graph.vp['trader_type'] = self.graph.new_vertex_property('int')
+            self.graph.vp['trader_type'] = self.graph.new_vertex_property('int', val=-1)
             self.graph.vp['is_landmark'] = self.graph.new_vertex_property('bool', val=False)
             self.graph.vp['landmark_name'] = self.graph.new_vertex_property('string')
             self.graph.vp['landmark_type'] = self.graph.new_vertex_property('int')

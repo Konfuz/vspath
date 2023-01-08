@@ -15,7 +15,7 @@ trader_enum = {
     11: 'pottery',
     12: 'luxuries'
 }
-
+inverse_trader_enum = {v: k for k, v in trader_enum.items()}
 trader_colors = {0: '#303030',
                  1: '#00f0f0',
                  2: '#c8c080',

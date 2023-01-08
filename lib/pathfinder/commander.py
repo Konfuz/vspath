@@ -3,7 +3,7 @@ import logging
 import graph_tool
 import time
 import re
-from lib.pathfinder.util import manhattan, cardinal_dir, trader_enum
+from lib.pathfinder.util import manhattan, cardinal_dir, trader_enum, inverse_trader_enum
 from lib.pathfinder.importers import get_importer
 from lib.pathfinder.config import config
 from textual.message_pump import MessagePump
@@ -26,7 +26,9 @@ class MasterCommander(MessagePump):
             'debug': self.do_debug,
             'route': self.do_route,
             'import': self.do_import,
-            'closest': self.do_find_closest
+            'closest': self.do_find_closest,
+            'stats': self.do_stats,
+            'help': self.do_help
         }
 
 
@@ -90,15 +92,51 @@ class MasterCommander(MessagePump):
         logging.info("import done.")
 
     def do_find_closest(self, args):
+        """Usage: closest \[tradetype] \[distance] <pos>
+
+        List traders of given type closer than distance
+        """
         if not args:
-            logging.info("usage: closest [trader] <pos>")
+            logging.info(self.do_find_closest.__doc__)
             return
         pos = self.graph_commander.parse_coord(args.pop(-1))
+        trader_type = None
+        dist = 500
         if args:
-            pass # TODO: Allow specification of trader-type
-        closest = self.graph_commander.closest_traders(pos)
+            for arg in args:
+                if arg in inverse_trader_enum:
+                    trader_type = inverse_trader_enum[arg]
+                    continue
+                try:
+                    dist = int(arg)
+                except ValueError:
+                    logging.warning(f"Argument {arg} not understood")
+        closest = self.graph_commander.closest_traders(pos, trader_type=trader_type, maxdist=dist)
         for trader_type, trader_name, coord, dist in closest:
             logging.info(f"{trader_type} {trader_name} {coord} {dist}m")
+
+    def do_stats(self, args):
+        """Print various statistics"""
+        graph = self.graph_commander.graph
+        info = f"""Graph currently has
+        {graph.num_vertices()} Nodes total
+        {graph.num_edges()} Edges total
+        {GraphView(graph,vfilt=graph.vp.is_tl).num_vertices()} Translocators
+        {GraphView(graph,vfilt=graph.vp.is_trader).num_vertices()} Traders        
+        """
+        logging.info(info)
+
+    def do_help(self, args):
+        """Usage: help [command]"""
+        if args:
+            if args[0] in self.commands:
+                logging.info(self.commands[args[0]].__doc__)
+                return
+        info = "Possible commands: "
+        for key in sorted(self.commands):
+            info += key + ' '
+        logging.info(info)
+
 
 class GraphCommander:
 
@@ -166,9 +204,12 @@ class GraphCommander:
         logging.info(f"search took {time.time() - starttime} seconds")
         return vertex_list, edge_list
 
-    def closest_traders(self, origin, maxdist=500):
+    def closest_traders(self, origin, trader_type=None, maxdist=500):
         vt = self.find_or_add(origin)
-        trader_view = GraphView(self.graph, vfilt=self.graph.vp.is_trader)
+        if trader_type:
+            trader_view = GraphView(self.graph, vfilt=lambda v: self.graph.vp.trader_type[v] == trader_type)
+        else:
+            trader_view = GraphView(self.graph, vfilt=self.graph.vp.is_trader)
         self.link_vertex(vt, min(maxdist, config.link_dist_tl))
         self.link_vertex(vt, maxdist, trader_view)
         weights = self.graph.ep.weight

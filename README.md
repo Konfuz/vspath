@@ -4,13 +4,13 @@ a pathfinder for vintagestory
 Work in Progress. I do not consider it suitable for distribution yet and the code can get a lot cleaner but I'll put it
 up for the interested audience.
 
+In particular I currently transform the launch-option based approach to a full-blown CLI Interface. 
+
+
 ## Usage
-Import at least one datasource, `points_of_interest.tsv` from automaps local files, or
-[translocators_lines.geojson](https://aurafurymap.ga/translocators_lines.geojson) from the [aurafury webmap](https://aurafurymap.ga/)
 
-Refer to commandline documentation with `./vspath.py -h`
+import <path to CampaignCartographer export>
+route <from> <to>
+type help for further info
 
 
-## Known Issues
-
-* Performance at long-distances is poor and leads to suboptimal results
